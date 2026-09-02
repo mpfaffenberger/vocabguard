@@ -1,9 +1,9 @@
 # vocabguard
 
-A [Pydantic AI](https://ai.pydantic.dev) capability that watches an agent's file-write tool calls,
-scores the prose it is about to write against a per-repo watchlist of model-favored terms, and
+A [Pydantic AI](https://ai.pydantic.dev) capability that watches an agent's tool calls and
+responses, scores the prose in them against a per-repo watchlist of model-favored terms, and
 returns a `ModelRetry` naming the terms and preferred replacements so the model rephrases before
-the write lands.
+the text lands anywhere.
 
 It ships with a CLI that builds the watchlist from your repository's own history, runs the same
 check as a pre-commit hook, and reports drift over time.
@@ -14,7 +14,13 @@ Read these before the examples; they shape how the guard behaves.
 
 - **Prose only.** Markdown, reStructuredText, and plain text are scored after fenced code, inline
   code, URLs, HTML tags, and link targets are stripped. Python files contribute docstrings and
-  comments only; identifiers are never scored. Other file types are ignored.
+  comments only; identifiers are never scored. A tool call that names a file of any other type
+  (`.json`, `.yaml`) is not prose and goes through untouched.
+- **Three places text is scored.** Tool calls that carry a path are scored as that file type.
+  Tool calls without a path (a chat message, a search query, a shell command) have every string
+  argument scored as plain text. Every model response has its text scored, whether it is the final
+  answer or a sentence written next to a tool call. Each can be narrowed with `tools` and
+  `output`.
 - **Term substitution only.** The guard catches words and two-word phrases. It does not see
   sentence structure, hedging, or list-heavy layouts. That is the job of the `[structural]` extra,
   which is not part of this release.
@@ -108,28 +114,31 @@ guard = VocabularyGuard(Watchlist.load('watchlist.json'))
 agent = Agent('openai:gpt-5', capabilities=[guard])
 ```
 
-The guard intercepts tools named `edit_file`, `write_file`, and `create_file` by default and reads
-the path from `path` or `file_path`, the new text from `content`, `new_string`, or `new_str`, and
-the previous text from `old_string` or `old_str`. All of these are configurable. With
-`instruct=True` (the default) the top 15 watched terms and their replacements are added to the
-system prompt so the model avoids them before the guard has to fire.
+By default every tool call and every model response is scored. A tool call is treated as a file
+write when it has a `path` or `file_path` argument; the new text is read from `content`,
+`new_string`, or `new_str`, and the previous text from `old_string` or `old_str`. All of these
+key names are configurable. With `instruct=True` (the default) the top 15 watched terms and their
+replacements are added to the system prompt so the model avoids them before the guard has to fire.
 
 ```python
 guard = VocabularyGuard(
     Watchlist.load('watchlist.json'),
-    tools=lambda name: name.endswith('_file'),
+    tools=lambda name: name.endswith('_file'),  # or a sequence of names; None watches every tool
+    output=False,  # leave model responses alone, score tool calls only
     threshold=0.05,
     mode='warn',
     on_hit=lambda report: print(report.describe()),
 )
 ```
 
-In `retry` mode a hit above threshold raises `ModelRetry` with the terms, their z scores, and
-replacements. In `warn` mode the write goes through and only `on_hit` is called. `on_hit` is
-called on every hit in both modes, so you can wire it to your own logging or metrics.
+In `retry` mode a hit above threshold raises `ModelRetry`. For a tool call, the model is asked to
+resubmit the same call with the wording fixed; for a response, to reply again. The message lists
+the terms, their z scores, and replacements. In `warn` mode everything goes through and only
+`on_hit` is called. `on_hit` is called on every hit in both modes, so you can wire it to your own
+logging or metrics; `HitReport.source` says which tool call or response it came from.
 
-Misconfiguration (an unknown mode, no tools to watch, a negative threshold) raises `UserError` at
-construction, not when the first tool call arrives.
+Misconfiguration (an unknown mode, an empty `tools` sequence, a negative threshold) raises
+`UserError` at construction, not when the first tool call arrives.
 
 ### 5. Run the same check in pre-commit
 

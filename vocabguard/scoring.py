@@ -6,11 +6,13 @@ import difflib
 from collections import Counter
 from dataclasses import dataclass, field
 
-from .extract import extractor_for
+from .extract import MarkdownExtractor, extractor_for
 from .normalize import normalize
 from .watchlist import Watchlist
 
-__all__ = ('BannedMatch', 'HitReport', 'TermHit', 'added_lines', 'score_file', 'score_prose')
+__all__ = ('BannedMatch', 'HitReport', 'TermHit', 'added_lines', 'score_file', 'score_prose', 'score_text')
+
+_PLAIN_TEXT = MarkdownExtractor()
 
 
 @dataclass(kw_only=True)
@@ -29,7 +31,8 @@ class BannedMatch:
 
 @dataclass(kw_only=True)
 class HitReport:
-    path: str | None = None
+    source: str = 'prose'
+    """What was scored: a file path, a tool call, or a model response."""
     score: float
     token_count: int
     terms: list[TermHit] = field(default_factory=list[TermHit])
@@ -45,7 +48,7 @@ class HitReport:
 
     def describe(self) -> str:
         """Human and model readable summary; the retry message and the CLI print the same text."""
-        lines = [f'{self.path or "prose"}: vocabulary score {self.score:.3f} over {self.token_count} tokens']
+        lines = [f'{self.source}: vocabulary score {self.score:.3f} over {self.token_count} tokens']
         for hit in self.terms:
             suffix = f', prefer: {hit.replacement}' if hit.replacement else ''
             lines.append(f'  {hit.term!r} (z={hit.z:.1f}, x{hit.count}{suffix})')
@@ -54,11 +57,11 @@ class HitReport:
         return '\n'.join(lines)
 
 
-def score_prose(spans: list[str], watchlist: Watchlist, *, min_tokens: int = 20, path: str | None = None) -> HitReport:
+def score_prose(spans: list[str], watchlist: Watchlist, *, min_tokens: int = 20, source: str = 'prose') -> HitReport:
     """Score extracted prose. Below `min_tokens` only banned patterns can fire."""
     text = '\n\n'.join(spans)
     tokens = normalize(text)
-    report = HitReport(path=path, score=0.0, token_count=len(tokens))
+    report = HitReport(source=source, score=0.0, token_count=len(tokens))
     for pattern in watchlist.banned_patterns:
         report.banned.extend(
             BannedMatch(pattern=pattern.pattern, text=match.group(0)) for match in pattern.finditer(text)
@@ -84,11 +87,22 @@ def added_lines(previous: str, current: str) -> str:
 
 
 def score_file(
-    *, path: str, content: str, previous: str | None = None, watchlist: Watchlist, min_tokens: int = 20
+    *,
+    path: str,
+    content: str,
+    previous: str | None = None,
+    watchlist: Watchlist,
+    min_tokens: int = 20,
+    source: str | None = None,
 ) -> HitReport | None:
     """Score a write to `path`, or None when the extension carries no prose. Pass `previous` to score only additions."""
     extractor = extractor_for(path)
     if extractor is None:
         return None
     text = content if previous is None else added_lines(previous, content)
-    return score_prose(extractor.extract(text, path=path), watchlist, min_tokens=min_tokens, path=path)
+    return score_prose(extractor.extract(text, path=path), watchlist, min_tokens=min_tokens, source=source or path)
+
+
+def score_text(text: str, watchlist: Watchlist, *, min_tokens: int = 20, source: str = 'text') -> HitReport:
+    """Score text with no file type: tool arguments and model responses. Markdown markup is stripped."""
+    return score_prose(_PLAIN_TEXT.extract(text, path=''), watchlist, min_tokens=min_tokens, source=source)

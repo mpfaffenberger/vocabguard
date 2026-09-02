@@ -62,7 +62,7 @@ def test_score_file_dispatches_and_diffs() -> None:
         min_tokens=5,
     )
     assert report is not None
-    assert report.path == 'doc.md'
+    assert report.source == 'doc.md'
     assert not report.hit
 
 
