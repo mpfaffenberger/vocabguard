@@ -32,8 +32,8 @@ Read these before the examples; they shape how the guard behaves.
 - **One tokenizer everywhere.** Baseline, corpus, watchlist keys, and the text under test all go
   through the same lowercase, lemmatize, unigram-plus-bigram pipeline. Hand-written watchlist keys
   are normalized on load, so `noting` and `note` are the same term.
-- **No model requests from the guard.** The only command that talks to a model is
-  `vocabguard rewrite`. The capability itself does no I/O.
+- **No model requests from the guard.** Two commands talk to a model: `vocabguard rewrite` and
+  `vocabguard scrape`. The capability itself does no I/O.
 - **git is required for the CLI.** `baseline`, `rewrite`, `report`, and `check --diff-base` shell
   out to `git`; there is no git library dependency.
 - **Python 3.10 or later.** Dependencies are `pydantic-ai-slim` and `simplemma`, a pure-Python
@@ -45,6 +45,12 @@ Read these before the examples; they shape how the guard behaves.
 pip install vocabguard
 # or
 uv add vocabguard
+```
+
+The `scrape` command needs OpenRouter support from pydantic-ai, which is an extra:
+
+```bash
+pip install "vocabguard[scrape]"
 ```
 
 ## How the watchlist is built
@@ -61,23 +67,45 @@ threshold (default zero) asks the model to rephrase.
 
 ## Workflow
 
-### 1. Freeze a baseline
+### 1. Decide what "our voice" is
 
-Pick a ref from before agents started writing in the repo. Restrict to prose directories if the
-repo has vendored text you do not want in the sample.
+The baseline is prose you would be happy to have more of. Two ways to get it:
+
+**Your own history.** Pick a ref from before agents started writing in the repo, and restrict to
+prose directories if the repo has vendored text you do not want in the sample:
 
 ```bash
 vocabguard baseline --ref v1.0.0 --path docs --path README.md -o baseline.json
 ```
 
-The file is frozen once written; pass `--force` to replace it. The baseline is the definition of
-"our voice", so changing it silently would change what every later report means.
+**A gathered corpus.** If the repo is new, or its history is already model-written, have an agent
+collect reference prose for you:
+
+```bash
+vocabguard scrape -o reference/ --target 50
+```
+
+The agent opens by asking what the corpus should represent (Wikipedia articles about aviation;
+README files of Python repositories on GitHub not updated since before 2026; a docs site you
+admire), proposes a plan, and saves documents into the folder as it goes. Type `quit` to end the
+session. It runs on OpenRouter's free router by default; the first run opens your browser to sign
+in with OpenRouter and stores the resulting key at `~/.config/vocabguard/openrouter_key`. Set
+`OPENROUTER_API_KEY` to skip the sign-in, or pass any other `--model provider:name`. Then:
+
+```bash
+vocabguard baseline --dir reference/ -o baseline.json
+```
+
+Either way the file is frozen once written; pass `--force` to replace it. Changing the baseline
+silently would change what every later report means.
 
 ### 2. Build the model corpus
 
 ```bash
 vocabguard rewrite --ref v1.0.0 --path docs --path README.md --model openai:gpt-5 -o corpus/
 ```
+
+`--dir reference/` works here too when the baseline came from a gathered corpus.
 
 Each prose document at the ref is sent to the model with the instruction to rewrite it in its own
 words at the same length. Output lands at `corpus/<original path>.md`. Files that already exist

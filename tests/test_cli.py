@@ -158,3 +158,42 @@ def test_report_rows_per_commit(repo: Path, capsys: pytest.CaptureFixture[str]) 
 def test_git_failure_is_a_user_error(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(['baseline', '--ref', 'no-such-ref', '-o', 'baseline.json']) == 2
     assert 'git ls-tree failed' in capsys.readouterr().err
+
+
+def test_baseline_and_rewrite_from_a_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    corpus = tmp_path / 'reference'
+    (corpus / 'nested').mkdir(parents=True)
+    (corpus / 'one.md').write_text(f'# One\n\n{CLEAN}\n')
+    (corpus / 'nested' / 'two.md').write_text(CLEAN)
+    (corpus / 'ignored.json').write_text('{"leverage": 1}')
+
+    assert main(['baseline', '--dir', 'reference', '-o', 'baseline.json']) == 0
+    counts = json.loads((tmp_path / 'baseline.json').read_text())
+    assert counts['counts']['parser'] == 2
+    assert 'leverage' not in counts['counts']
+    assert counts['source'] == 'baseline reference'
+
+    assert main(['baseline', '--dir', 'reference', '--path', 'nested', '-o', 'nested.json', '--force']) == 0
+    assert json.loads((tmp_path / 'nested.json').read_text())['counts']['parser'] == 1
+
+    assert main(['rewrite', '--dir', 'reference', '--model', 'test', '-o', 'corpus']) == 0
+    assert (tmp_path / 'corpus' / 'one.md.md').exists()
+    assert (tmp_path / 'corpus' / 'nested' / 'two.md.md').exists()
+
+
+def test_source_options_are_exclusive_and_required(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(['baseline', '-o', str(tmp_path / 'b.json')])
+    with pytest.raises(SystemExit):
+        main(['baseline', '--ref', 'HEAD', '--dir', str(tmp_path), '-o', str(tmp_path / 'b.json')])
+    assert main(['baseline', '--dir', str(tmp_path / 'missing'), '-o', str(tmp_path / 'b.json')]) == 2
+    assert 'not a directory' in capsys.readouterr().err
+
+
+def test_scrape_uses_the_openrouter_key_without_a_browser(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # With a key in the environment no OAuth flow runs; the first model request is then refused by the
+    # test conftest, which proves the OpenRouter model was built and asked.
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-or-test')
+    with pytest.raises(RuntimeError, match='Model requests are not allowed'):
+        main(['scrape', '-o', str(tmp_path / 'corpus')])

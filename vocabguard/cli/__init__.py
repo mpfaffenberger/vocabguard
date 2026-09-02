@@ -8,12 +8,13 @@ from collections.abc import Sequence
 
 from pydantic_ai.exceptions import UserError
 
-from . import _baseline, _check, _contrast, _report, _rewrite
+from . import _baseline, _check, _contrast, _report, _rewrite, _scrape
 from ._common import Command, CommandRunner
 
 __all__ = ('main',)
 
 COMMANDS: tuple[Command, ...] = (
+    _scrape.COMMAND,
     _baseline.COMMAND,
     _rewrite.COMMAND,
     _contrast.COMMAND,
