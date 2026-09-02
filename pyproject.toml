@@ -9,7 +9,7 @@ description = 'Pydantic AI capability that catches vocabulary drift in agent-wri
 readme = 'README.md'
 license = 'MIT'
 license-files = ['LICENSE']
-requires-python = '>=3.10'
+requires-python = '>=3.11'
 authors = [{ name = 'Michael Pfaffenberger' }]
 keywords = ['pydantic-ai', 'agents', 'writing', 'lint', 'vocabulary']
 classifiers = [
@@ -17,7 +17,6 @@ classifiers = [
     'Intended Audience :: Developers',
     'License :: OSI Approved :: MIT License',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
@@ -30,7 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-scrape = ['pydantic-ai-slim[openrouter]']
+scrape = ['pydantic-ai-slim[openrouter]', 'termflow-md>=0.9']
 structural = ['spacy']
 
 [project.scripts]
@@ -40,6 +39,7 @@ vocabguard = 'vocabguard.cli:main'
 dev = [
     'anyio>=4',
     'pydantic-ai-slim[openrouter]',
+    'termflow-md>=0.9',
     'pyright>=1.1.400',
     'pytest>=8',
     'ruff>=0.11',
@@ -50,7 +50,7 @@ packages = ['vocabguard']
 
 [tool.ruff]
 line-length = 120
-target-version = 'py310'
+target-version = 'py311'
 
 [tool.ruff.lint]
 extend-select = ['Q', 'I', 'UP', 'B', 'C4', 'RUF']
@@ -64,9 +64,11 @@ quote-style = 'single'
 
 [tool.pyright]
 typeCheckingMode = 'strict'
-pythonVersion = '3.10'
+pythonVersion = '3.11'
 include = ['vocabguard', 'tests']
 reportUnnecessaryTypeIgnoreComment = true
+# termflow-md ships no py.typed yet.
+reportMissingTypeStubs = false
 executionEnvironments = [{ root = 'tests', reportUnusedFunction = false }]
 
 [tool.pytest.ini_options]

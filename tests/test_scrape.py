@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-import json
-from collections.abc import Iterator
+import io
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
+import pytest
 from pydantic_ai import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 
+from vocabguard.display import PlainDisplay
 from vocabguard.scrape import ScrapeDeps, build_agent, chat
+
+pytestmark = pytest.mark.anyio
 
 ARTICLE = ' '.join(f'word{i}' for i in range(80))
 
@@ -31,19 +35,32 @@ def fake_web(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404, text='nope')
 
 
+def scripted(responses: list[ModelResponse]) -> FunctionModel:
+    """A model that plays back responses in order, streamed, then says done."""
+    queue = list(responses)
+
+    def next_response() -> ModelResponse:
+        return queue.pop(0) if queue else ModelResponse(parts=[TextPart('done')])
+
+    def function(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return next_response()
+
+    async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str | DeltaToolCalls]:
+        for index, part in enumerate(next_response().parts):
+            if isinstance(part, TextPart):
+                yield part.content
+            elif isinstance(part, ToolCallPart):
+                yield {index: DeltaToolCall(name=part.tool_name, json_args=part.args_as_json_str())}
+
+    return FunctionModel(function, stream_function=stream)
+
+
 def run_calls(tmp_path: Path, calls: list[tuple[str, dict[str, object]]]) -> tuple[list[ToolReturnPart], ScrapeDeps]:
     """Drive the agent through a scripted list of tool calls and collect what the tools returned."""
-    queue = list(calls)
-
-    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        if queue:
-            name, args = queue.pop(0)
-            return ModelResponse(parts=[ToolCallPart(name, args)])
-        return ModelResponse(parts=[TextPart('done')])
-
+    model = scripted([ModelResponse(parts=[ToolCallPart(name, args)]) for name, args in calls])
     with httpx.Client(transport=httpx.MockTransport(fake_web)) as client:
         deps = ScrapeDeps(output=tmp_path / 'corpus', client=client, target=2)
-        result = build_agent(FunctionModel(model)).run_sync('go', deps=deps)
+        result = build_agent(model).run_sync('go', deps=deps)
     returns = [part for message in result.all_messages() for part in message.parts if isinstance(part, ToolReturnPart)]
     return returns, deps
 
@@ -107,30 +124,49 @@ def test_http_errors_become_retries(tmp_path: Path) -> None:
     assert returns == []
 
 
-def test_chat_loop_opens_with_a_question_and_stops_on_quit(tmp_path: Path) -> None:
-    turns: list[str] = []
+class ScriptedDisplay(PlainDisplay):
+    """Answers from a script instead of stdin; records what was shown."""
 
-    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        turns.append(json.dumps(len(messages)))
-        return ModelResponse(parts=[TextPart(f'turn {len(turns)}')])
+    def __init__(self, answers: list[str]) -> None:
+        super().__init__(io.StringIO())
+        self.answers = iter(answers)
+        self.turns: list[str] = []
+        self.activities: list[str] = []
 
-    answers: Iterator[str] = iter(['Wikipedia articles about aviation', 'quit'])
-    written: list[str] = []
+    def begin_turn(self) -> None:
+        self.turns.append('')
+
+    def text(self, delta: str) -> None:
+        self.turns[-1] += delta
+
+    def activity(self, message: str) -> None:
+        self.activities.append(message)
+
+    def read(self, prompt: str) -> str:
+        try:
+            return next(self.answers)
+        except StopIteration:
+            raise EOFError from None
+
+
+async def test_chat_loop_streams_text_and_tool_calls_then_stops_on_quit(tmp_path: Path) -> None:
+    model = scripted(
+        [
+            ModelResponse(parts=[TextPart('What should the corpus represent?')]),
+            ModelResponse(parts=[TextPart('Checking. '), ToolCallPart('corpus_status', {})]),
+            ModelResponse(parts=[TextPart('Empty so far.')]),
+        ]
+    )
+    display = ScriptedDisplay(['Wikipedia articles about aviation', 'quit'])
     with httpx.Client(transport=httpx.MockTransport(fake_web)) as client:
         deps = ScrapeDeps(output=tmp_path, client=client)
-        chat(build_agent(FunctionModel(model)), deps, read=lambda prompt: next(answers), write=written.append)
-    assert written == ['turn 1', 'turn 2']
-    # The second call carries the whole conversation, not a fresh one.
-    assert turns == ['1', '3']
+        await chat(build_agent(model), deps, display)
+    # Turn two shows the text written next to the tool call, the call itself, and the follow-up.
+    assert display.turns == ['What should the corpus represent?', 'Checking. Empty so far.']
+    assert display.activities == ['corpus_status {}']
 
 
-def test_chat_loop_stops_on_eof(tmp_path: Path) -> None:
-    def read(prompt: str) -> str:
-        raise EOFError
-
-    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        return ModelResponse(parts=[TextPart('hello')])
-
+async def test_chat_loop_stops_on_eof(tmp_path: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(fake_web)) as client:
         deps = ScrapeDeps(output=tmp_path, client=client)
-        chat(build_agent(FunctionModel(model)), deps, read=read, write=lambda text: None)
+        await chat(build_agent(scripted([])), deps, ScriptedDisplay([]))

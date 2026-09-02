@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from pathlib import Path
 
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.models import Model
 
 from .. import openrouter
+from ..display import make_display
 from ..scrape import ScrapeDeps, build_agent, chat, make_client
 from ._common import Command, add_output_option, status
 
@@ -34,7 +36,7 @@ def run(args: argparse.Namespace) -> int:
     with make_client() as client:
         deps = ScrapeDeps(output=output, client=client, target=target)
         status(f'Saving documents to {output}. Type quit to end the session.')
-        chat(agent, deps)
+        asyncio.run(chat(agent, deps, make_display()))
     status(f'{len(deps.saved)} documents saved this session.')
     return 0
 

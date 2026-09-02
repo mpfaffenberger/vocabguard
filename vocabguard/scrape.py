@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import AsyncIterable
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
@@ -18,9 +18,18 @@ from typing import TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 from pydantic_ai import Agent, ModelRetry, RunContext
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import (
+    AgentStreamEvent,
+    FunctionToolCallEvent,
+    ModelMessage,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
 from pydantic_ai.models import Model
 
+from .display import Display
 from .normalize import lemmatize_words
 
 __all__ = ('INSTRUCTIONS', 'ScrapeDeps', 'build_agent', 'chat', 'make_client')
@@ -109,22 +118,29 @@ def build_agent(model: Model | str) -> Agent[ScrapeDeps, str]:
     return agent
 
 
-def chat(
-    agent: Agent[ScrapeDeps, str],
-    deps: ScrapeDeps,
-    *,
-    read: Callable[[str], str] = input,
-    write: Callable[[str], object] = print,
-) -> None:
-    """Turn-based loop on stdin. Ends on EOF or `quit`."""
+async def chat(agent: Agent[ScrapeDeps, str], deps: ScrapeDeps, display: Display) -> None:
+    """Turn-based loop. Model text and tool calls stream to the display as they happen; ends on EOF or `quit`."""
+
+    async def on_events(ctx: RunContext[ScrapeDeps], events: AsyncIterable[AgentStreamEvent]) -> None:
+        async for event in events:
+            if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                display.text(event.part.content)
+            elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                display.text(event.delta.content_delta)
+            elif isinstance(event, FunctionToolCallEvent):
+                display.activity(f'{event.part.tool_name} {event.part.args_as_json_str()}')
+
     history: list[ModelMessage] = []
     prompt = 'Begin the session by asking what the corpus should represent.'
     while True:
-        result = agent.run_sync(prompt, deps=deps, message_history=history)
-        write(result.output)
+        display.begin_turn()
+        try:
+            result = await agent.run(prompt, deps=deps, message_history=history, event_stream_handler=on_events)
+        finally:
+            await display.end_turn()
         history = result.all_messages()
         try:
-            prompt = read('> ').strip()
+            prompt = display.read('> ').strip()
         except EOFError:
             return
         if prompt.lower() in ('', 'quit', 'exit', 'q'):

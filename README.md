@@ -36,8 +36,8 @@ Read these before the examples; they shape how the guard behaves.
   `vocabguard scrape`. The capability itself does no I/O.
 - **git is required for the CLI.** `baseline`, `rewrite`, `report`, and `check --diff-base` shell
   out to `git`; there is no git library dependency.
-- **Python 3.10 or later.** Dependencies are `pydantic-ai-slim` and `simplemma`, a pure-Python
-  lemmatizer with no model download.
+- **Python 3.11 or later.** Dependencies are `pydantic-ai-slim`, `httpx`, and `simplemma`, a
+  pure-Python lemmatizer with no model download.
 
 ## Install
 
@@ -47,7 +47,8 @@ pip install vocabguard
 uv add vocabguard
 ```
 
-The `scrape` command needs OpenRouter support from pydantic-ai, which is an extra:
+The `scrape` command needs OpenRouter support from pydantic-ai and the
+[termflow](https://pypi.org/project/termflow-md/) renderer, which together are an extra:
 
 ```bash
 pip install "vocabguard[scrape]"
@@ -87,8 +88,8 @@ vocabguard scrape -o reference/ --target 50
 
 The agent opens by asking what the corpus should represent (Wikipedia articles about aviation;
 README files of Python repositories on GitHub not updated since before 2026; a docs site you
-admire), proposes a plan, and saves documents into the folder as it goes. Type `quit` to end the
-session. It runs on OpenRouter's free router by default; the first run opens your browser to sign
+admire), proposes a plan, and saves documents into the folder as it goes. Replies stream as
+rendered markdown and each tool call is shown as it happens. Type `quit` to end the session. It runs on OpenRouter's free router by default; the first run opens your browser to sign
 in with OpenRouter and stores the resulting key at `~/.config/vocabguard/openrouter_key`. Set
 `OPENROUTER_API_KEY` to skip the sign-in, or pass any other `--model provider:name`. Then:
 
