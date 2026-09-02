@@ -64,6 +64,7 @@ typeCheckingMode = 'strict'
 pythonVersion = '3.10'
 include = ['vocabguard', 'tests']
 reportUnnecessaryTypeIgnoreComment = true
+executionEnvironments = [{ root = 'tests', reportUnusedFunction = false }]
 
 [tool.pytest.ini_options]
 testpaths = ['tests']
