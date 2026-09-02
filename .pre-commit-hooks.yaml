@@ -1,0 +1,9 @@
+# Pass --watchlist and --diff-base through `args` in your .pre-commit-config.yaml.
+# Without --watchlist the bundled starter list is used.
+- id: vocabguard
+  name: vocabguard
+  description: Score the prose in changed files against a vocabulary watchlist.
+  entry: vocabguard check
+  language: python
+  files: \.(md|rst|txt|py)$
+  minimum_pre_commit_version: '3.0.0'

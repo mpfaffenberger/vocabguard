@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from importlib.resources import files
@@ -83,11 +84,9 @@ class Watchlist:
         return sorted(self.terms.items(), key=lambda item: item[1], reverse=True)[:limit]
 
     def save(self, path: str | Path) -> None:
-        payload = _WatchlistFile(
-            terms={
-                self.label(term): z for term, z in sorted(self.terms.items(), key=lambda item: item[1], reverse=True)
-            },
-            replacements={self.label(term): replacement for term, replacement in self.replacements.items()},
-            banned_patterns=[pattern.pattern for pattern in self.banned_patterns],
-        )
-        Path(path).write_text(payload.model_dump_json(indent=2) + '\n', encoding='utf-8')
+        payload = {
+            'terms': {self.label(term): z for term, z in self.top_terms(len(self.terms))},
+            'replacements': {self.label(term): replacement for term, replacement in self.replacements.items()},
+            'banned_patterns': [pattern.pattern for pattern in self.banned_patterns],
+        }
+        Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
