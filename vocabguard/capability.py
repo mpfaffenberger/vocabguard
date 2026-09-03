@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import KW_ONLY, dataclass
+from dataclasses import KW_ONLY, dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from pydantic_ai.capabilities import AbstractCapability, ValidatedToolArgs
@@ -31,9 +31,11 @@ class VocabularyGuard(AbstractCapability[AgentDepsT]):
     previous text is present, so edits to a file that already contains watched terms still go
     through. Tool calls without a path have every string argument scored as plain text. Model
     responses are scored on their text parts. The guard never makes model requests or reads files.
+
+    `VocabularyGuard()` with no arguments is the bundled classifier at the threshold measured for it.
     """
 
-    watchlist: Watchlist
+    watchlist: Watchlist = field(default_factory=Watchlist.default)
     _: KW_ONLY
     tools: Sequence[str] | Callable[[str], bool] | None = None
     """Tool names to watch, or a predicate over the tool name. None watches every tool."""
@@ -42,8 +44,8 @@ class VocabularyGuard(AbstractCapability[AgentDepsT]):
     path_keys: Sequence[str] = ('path', 'file_path')
     content_keys: Sequence[str] = ('content', 'new_string', 'new_str')
     previous_keys: Sequence[str] = ('old_string', 'old_str')
-    threshold: float = 0.0
-    """Score above which the guard fires. Zero means any watched term fires."""
+    threshold: float | None = None
+    """Score above which the guard fires. None uses the watchlist's own threshold; zero means any watched term fires."""
     min_tokens: int = 20
     """Below this many tokens the score is skipped; banned patterns still fire."""
     mode: Literal['retry', 'warn'] = 'retry'
@@ -58,10 +60,15 @@ class VocabularyGuard(AbstractCapability[AgentDepsT]):
             raise UserError(f'VocabularyGuard mode must be "retry" or "warn", not {self.mode!r}')
         if self.tools is not None and not callable(self.tools) and not self.tools:
             raise UserError('VocabularyGuard tools must name at least one tool, or be None to watch every tool')
-        if self.threshold < 0:
+        if self.effective_threshold < 0:
             raise UserError('VocabularyGuard threshold must be zero or greater')
         if self.min_tokens < 0:
             raise UserError('VocabularyGuard min_tokens must be zero or greater')
+
+    @property
+    def effective_threshold(self) -> float:
+        """The threshold in force: an explicit one, else the watchlist's."""
+        return self.watchlist.threshold if self.threshold is None else self.threshold
 
     def get_instructions(self) -> str | None:
         if not self.instruct or not self.watchlist.terms:
@@ -127,7 +134,7 @@ class VocabularyGuard(AbstractCapability[AgentDepsT]):
             return
         if self.on_hit is not None:
             self.on_hit(report)
-        if self.mode == 'retry' and report.exceeds(self.threshold):
+        if self.mode == 'retry' and report.exceeds(self.effective_threshold):
             raise ModelRetry(f'{report.describe()}\n\n{instruction}')
 
     def _watches(self, tool_name: str) -> bool:

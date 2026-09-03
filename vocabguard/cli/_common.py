@@ -31,12 +31,27 @@ def status(message: str) -> None:
 
 def add_watchlist_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        '--watchlist', type=Path, default=None, help='Watchlist JSON. Defaults to the bundled starter list.'
+        '--watchlist', type=Path, default=None, help='Watchlist JSON. Defaults to the bundled measured classifier.'
+    )
+
+
+def add_threshold_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        '--threshold',
+        type=float,
+        default=None,
+        help='Score above which prose counts as drifted. Defaults to the threshold stored in the watchlist.',
     )
 
 
 def load_watchlist(path: Path | None) -> Watchlist:
-    return Watchlist.starter() if path is None else Watchlist.load(path)
+    return Watchlist.default() if path is None else Watchlist.load(path)
+
+
+def resolve_threshold(watchlist: Watchlist, override: float | None) -> float:
+    if override is not None and override < 0:
+        raise UserError('--threshold must be zero or greater')
+    return watchlist.threshold if override is None else override
 
 
 def add_source_options(parser: argparse.ArgumentParser) -> None:

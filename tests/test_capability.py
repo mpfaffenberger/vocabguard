@@ -210,6 +210,17 @@ async def test_banned_pattern_fires_below_min_tokens() -> None:
     assert 'banned pattern' in retry.model_response()
 
 
+async def test_default_guard_is_the_bundled_classifier_at_its_threshold() -> None:
+    guard: VocabularyGuard[object] = VocabularyGuard()
+    assert guard.watchlist.terms == Watchlist.default().terms
+    assert guard.threshold is None
+    assert guard.effective_threshold == 1.6
+    explicit: VocabularyGuard[object] = VocabularyGuard(threshold=0.5)
+    assert explicit.effective_threshold == 0.5
+    listed: VocabularyGuard[object] = VocabularyGuard(WATCHLIST)
+    assert listed.effective_threshold == 0.0
+
+
 async def test_threshold_lets_low_scores_through() -> None:
     guard: VocabularyGuard[object] = VocabularyGuard(WATCHLIST, threshold=10.0)
     harness = Harness(guard, [edit(CONTAMINATED)])

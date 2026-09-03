@@ -5,8 +5,30 @@ responses, scores the prose in them against a per-repo watchlist of model-favore
 returns a `ModelRetry` naming the terms and preferred replacements so the model rephrases before
 the text lands anywhere.
 
-It ships with a CLI that builds the watchlist from your repository's own history, runs the same
-check as a pre-commit hook, and reports drift over time.
+It ships with a classifier measured from real corpora, and a CLI that scores text with it, builds
+your own watchlist from your repository's history, runs the same check as a pre-commit hook, and
+reports drift over time.
+
+## Sixty seconds
+
+```bash
+pip install vocabguard
+vocabguard "Agent runtime with persistent memory across sessions. Every task runs in a worker."
+echo "Some text you are unsure about" | vocabguard
+```
+
+Both print the score, the terms that drove it, and `drifted` or `ok`, and exit 1 on drift. In an
+agent, the same classifier at the same threshold is one line:
+
+```python
+from pydantic_ai import Agent
+from vocabguard import VocabularyGuard
+
+agent = Agent('openai:gpt-5', capabilities=[VocabularyGuard()])
+```
+
+Where that classifier came from, and what it can and cannot tell you, is under
+[Measured README watchlist](#measured-readme-watchlist). Read the constraints first.
 
 ## Constraints
 
@@ -143,8 +165,8 @@ vocabguard evaluate --baseline-dir human/ --corpus-dir model/ --top 1000
 
 `evaluate` builds the watchlist on 80% of each corpus, scores the other 20% with the same scorer the
 guard uses, and prints the AUC plus the threshold that best balances catches against false alarms.
-Use that threshold in the capability and in `check`; a threshold of `0.0` with a thousand-term list
-would fire on almost anything.
+Bake that threshold into the file with `contrast --threshold`; the capability and `check` read it
+from there. A threshold of `0.0` with a thousand-term list would fire on almost anything.
 
 ### 4. Wire the capability
 
@@ -157,7 +179,8 @@ guard = VocabularyGuard(Watchlist.load('watchlist.json'))
 agent = Agent('openai:gpt-5', capabilities=[guard])
 ```
 
-By default every tool call and every model response is scored. A tool call is treated as a file
+`VocabularyGuard()` with no watchlist uses the bundled measured classifier. The threshold comes
+from the watchlist unless you pass one. By default every tool call and every model response is scored. A tool call is treated as a file
 write when it has a `path` or `file_path` argument; the new text is read from `content`,
 `new_string`, or `new_str`, and the previous text from `old_string` or `old_str`. All of these
 key names are configurable. With `instruct=True` (the default) the top 15 watched terms and their
@@ -195,8 +218,8 @@ repos:
 ```
 
 `vocabguard check` accepts files and directories, exits nonzero on hits above threshold, and prints
-the same report the guard sends to the model. Without `--watchlist` it uses the bundled starter
-list.
+the same report the guard sends to the model. Without `--watchlist` it uses the bundled measured
+classifier, and without `--threshold` it uses the threshold stored in the watchlist.
 
 ### 6. Watch drift over time
 
@@ -211,23 +234,24 @@ divergence, so read the `words` column alongside it.
 
 ## Starter watchlist
 
-If you have not built corpora yet, `Watchlist.starter()` (or `vocabguard check` with no
-`--watchlist`) loads a short hand-curated list of commonly model-favored terms such as `delve`,
+`Watchlist.starter()` (`vocabguard/data/starter_watchlist.json` on the command line) is a short
+hand-curated list of commonly model-favored terms such as `delve`,
 `leverage`, `robust`, `seamless`, and `worth noting`, with modest z values and replacements. It is
 a starting point, not a measurement; `contrast` on your own history will disagree with it in both
 directions.
 
 ## Measured README watchlist
 
-`Watchlist.bundled('readme_2026_watchlist')` is a measurement. It was built with the commands above
-from two corpora of GitHub READMEs: 4,319 from repositories with at least 500 stars whose last push
-was before 2025 (22 languages, weighted toward TypeScript, Python, Java, Rust, Go, JavaScript, and
-C; 6.4M prose tokens), and 1,047 from repositories with Claude Code commits during 2026 (2.1M prose
+`Watchlist.default()` is a measurement, and it is what `VocabularyGuard()`, `vocabguard score`,
+and `vocabguard check` use when given nothing else. It was built with the commands above from two
+corpora of GitHub READMEs: 4,319 from repositories with at least 500 stars whose last push was
+before 2025 (22 languages, weighted toward TypeScript, Python, Java, Rust, Go, JavaScript, and C;
+6.4M prose tokens), and 1,047 from repositories with Claude Code commits during 2026 (2.1M prose
 tokens). Markup, URLs, and code were stripped before counting.
 
 ```bash
-vocabguard contrast --baseline human.json --corpus claude/ -o readme_2026_watchlist.json --top 1000
 vocabguard evaluate --baseline-dir human/ --corpus-dir claude/ --top 1000
+vocabguard contrast --baseline human.json --corpus claude/ -o readme_2026_watchlist.json --top 1000 --threshold 1.6
 ```
 
 ```text
@@ -235,7 +259,7 @@ AUC: 0.872
 threshold 1.60: flags 75% of model documents and 8% of baseline documents
 ```
 
-Use it with `threshold=1.6`. What it measures, and what it does not:
+The 1.6 is stored in the file. What it measures, and what it does not:
 
 - **Voice**: the 2026 corpus over-uses `every`, `no`, `across`, `via`, `full`, `with`, and `what`,
   and under-uses `the`, `of`, `to`, `you`, `can`, `will`, `be`, `if`. Nominal, list-shaped

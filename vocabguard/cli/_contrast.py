@@ -24,6 +24,12 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help='Keep only the N highest z. With corpora of millions of tokens nearly every n-gram clears --z.',
     )
     parser.add_argument(
+        '--threshold',
+        type=float,
+        default=0.0,
+        help='Score above which prose counts as drifted, stored in the watchlist. Take it from `evaluate`.',
+    )
+    parser.add_argument(
         '--curated',
         type=Path,
         default=None,
@@ -38,6 +44,7 @@ def run(args: argparse.Namespace) -> int:
     alpha0: float = args.alpha0
     z_min: float = args.z
     top: int | None = args.top
+    threshold: float = args.threshold
     curated_path: Path | None = args.curated
     if top is not None and top < 1:
         raise UserError('--top must be at least 1')
@@ -50,11 +57,12 @@ def run(args: argparse.Namespace) -> int:
         raise UserError(f'no prose found under {corpus_dir}')
     scores = log_odds_z(model=model, baseline=baseline, alpha0=alpha0)
     curated = CuratedFile.load(curated_path) if curated_path else CuratedFile()
-    ranked = sorted(((term, z) for term, z in scores.items() if z > z_min), key=lambda item: item[1], reverse=True)
+    ranked = sorted(((term, z) for term, z in scores.items() if z > z_min), key=lambda item: (-item[1], item[0]))
     watchlist = Watchlist.from_parts(
         terms=dict(ranked[:top]),
         replacements=curated.replacements,
         banned_patterns=curated.banned_patterns,
+        threshold=threshold,
     )
     watchlist.save(output)
     cap = f', top {top}' if top is not None else ''

@@ -1,5 +1,5 @@
 # Pass --watchlist and --diff-base through `args` in your .pre-commit-config.yaml.
-# Without --watchlist the bundled starter list is used.
+# Without --watchlist the bundled measured classifier is used, at the threshold stored in it.
 - id: vocabguard
   name: vocabguard
   description: Score the prose in changed files against a vocabulary watchlist.

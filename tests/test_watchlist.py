@@ -26,12 +26,31 @@ def test_keys_are_normalized_and_labels_kept() -> None:
 def test_save_and_load_round_trip(tmp_path: Path) -> None:
     target = tmp_path / 'watchlist.json'
     original = Watchlist.from_parts(
-        terms={'leverage': 3.0, 'worth noting': 2.5}, replacements={'leverage': 'use'}, banned_patterns=['--']
+        terms={'leverage': 3.0, 'worth noting': 2.5},
+        replacements={'leverage': 'use'},
+        banned_patterns=['--'],
+        threshold=1.25,
     )
     original.save(target)
     written = json.loads(target.read_text())
     assert list(written['terms']) == ['leverage', 'worth noting']
+    assert written['threshold'] == 1.25
     assert Watchlist.load(target) == original
+
+
+def test_threshold_defaults_to_zero_and_rejects_negatives(tmp_path: Path) -> None:
+    legacy = tmp_path / 'legacy.json'
+    legacy.write_text('{"terms": {"delve": 2.0}}')
+    assert Watchlist.load(legacy).threshold == 0.0
+    with pytest.raises(UserError, match='threshold'):
+        Watchlist.from_parts(terms={}, replacements={}, banned_patterns=[], threshold=-1.0)
+
+
+def test_default_is_the_measured_classifier() -> None:
+    default = Watchlist.default()
+    assert default.threshold == 1.6
+    assert default.terms == Watchlist.bundled('readme_2026_watchlist').terms
+    assert Watchlist.starter().threshold == 0.0
 
 
 def test_top_terms_orders_by_z() -> None:

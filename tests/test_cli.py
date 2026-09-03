@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
 
 from vocabguard.cli import main
+
+STARTER = ['--watchlist', str(files('vocabguard.data').joinpath('starter_watchlist.json'))]
+"""The hand-curated list; these fixtures were written against its terms, so name it explicitly."""
 
 CLEAN = (
     'The parser reads each line, splits it on tabs, and hands the fields to the renderer, which '
@@ -145,12 +150,13 @@ def test_contrast_rejects_empty_corpus(repo: Path, capsys: pytest.CaptureFixture
 
 def test_check_reports_hits_and_exit_code(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (repo / 'bad.md').write_text(CONTAMINATED)
-    assert main(['check', 'README.md', 'src']) == 0
-    assert main(['check', 'bad.md', 'README.md']) == 1
+    assert main(['check', 'README.md', 'src', *STARTER]) == 0
+    assert main(['check', 'bad.md', 'README.md', *STARTER]) == 1
     out = capsys.readouterr().out
     assert out.startswith('bad.md: vocabulary score')
     assert "'leverage'" in out
-    assert main(['check', 'bad.md', '--threshold', '100']) == 0
+    assert main(['check', 'bad.md', *STARTER, '--threshold', '100']) == 0
+    assert main(['check', 'bad.md', *STARTER, '--threshold', '-1']) == 2
 
 
 def test_check_diff_base_scores_only_additions(repo: Path) -> None:
@@ -160,9 +166,9 @@ def test_check_diff_base_scores_only_additions(repo: Path) -> None:
     git('commit', '-q', '-m', 'add contaminated file')
     git('tag', 'contaminated')
     bad.write_text(f'{CONTAMINATED}\n\n{CLEAN}\n')
-    assert main(['check', 'bad.md']) == 1
-    assert main(['check', 'bad.md', '--diff-base', 'contaminated']) == 0
-    assert main(['check', 'bad.md', '--diff-base', 'base']) == 1
+    assert main(['check', 'bad.md', *STARTER]) == 1
+    assert main(['check', 'bad.md', *STARTER, '--diff-base', 'contaminated']) == 0
+    assert main(['check', 'bad.md', *STARTER, '--diff-base', 'base']) == 1
 
 
 def test_report_rows_per_commit(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -177,7 +183,7 @@ def test_report_rows_per_commit(repo: Path, capsys: pytest.CaptureFixture[str]) 
     git('add', 'README.md')
     git('commit', '-q', '-m', 'same voice as the baseline')
 
-    assert main(['report', '--baseline', 'baseline.json', '--since', 'base', '--format', 'json']) == 0
+    assert main(['report', '--baseline', 'baseline.json', '--since', 'base', '--format', 'json', *STARTER]) == 0
     rows = json.loads(capsys.readouterr().out)
     assert [row['subject'] for row in rows] == ['drifting commit', 'same voice as the baseline']
     drifting, same = rows
@@ -185,10 +191,53 @@ def test_report_rows_per_commit(repo: Path, capsys: pytest.CaptureFixture[str]) 
     assert same['hits_per_thousand_words'] == 0
     assert drifting['js_divergence'] > same['js_divergence']
 
-    assert main(['report', '--baseline', 'baseline.json', '--since', 'base']) == 0
+    assert main(['report', '--baseline', 'baseline.json', '--since', 'base', *STARTER]) == 0
     csv_lines = capsys.readouterr().out.splitlines()
     assert csv_lines[0] == 'sha,date,subject,words,js_divergence,hits_per_thousand_words'
     assert len(csv_lines) == 3
+
+
+DRIFTED = (
+    'Agent runtime with persistent memory across sessions. Every task runs in an isolated worker with full '
+    'context. Skills and hooks register via the CLI; no manual configuration. Security review on every route.'
+)
+PLAIN = (
+    'This is a small library that you can use if you want to parse config files without much fuss. It will '
+    'read the file, and then you get a dictionary back. We wrote it because the alternatives were too heavy.'
+)
+
+
+def test_score_uses_the_bundled_classifier_and_its_threshold(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(['score', DRIFTED]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith('text: vocabulary score')
+    assert "'agent'" in out
+    assert out.rstrip().endswith('threshold 1.60: drifted')
+    assert main(['score', PLAIN]) == 0
+    assert capsys.readouterr().out.rstrip().endswith('threshold 1.60: ok')
+    assert main(['score', DRIFTED, '--threshold', '100']) == 0
+
+
+def test_bare_text_and_piped_stdin_route_to_score(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert main([DRIFTED]) == 1
+    assert 'drifted' in capsys.readouterr().out
+    monkeypatch.setattr('sys.stdin', io.StringIO(PLAIN))
+    assert main([]) == 0
+    assert 'ok' in capsys.readouterr().out
+    monkeypatch.setattr('sys.stdin', io.StringIO('   '))
+    assert main(['score']) == 2
+    assert 'nothing to score' in capsys.readouterr().err
+
+
+def test_score_json_report(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(['score', '--json', DRIFTED]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report['drifted'] is True
+    assert report['threshold'] == 1.6
+    assert report['score'] > 1.6
+    assert {hit['term'] for hit in report['terms']} >= {'agent', 'every'}
 
 
 def test_git_failure_is_a_user_error(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:

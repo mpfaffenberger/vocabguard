@@ -73,7 +73,7 @@ def run(args: argparse.Namespace) -> int:
         baseline=CorpusCounts.from_documents(baseline_train),
         alpha0=alpha0,
     )
-    ranked = sorted(((term, z) for term, z in scores.items() if z > z_min), key=lambda item: item[1], reverse=True)
+    ranked = sorted(((term, z) for term, z in scores.items() if z > z_min), key=lambda item: (-item[1], item[0]))
     watchlist = Watchlist.from_parts(terms=dict(ranked[:top]), replacements={}, banned_patterns=[])
     if not watchlist.terms:
         raise UserError(f'no n-grams cleared z > {z_min}; lower --z or use larger corpora')

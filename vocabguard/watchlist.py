@@ -32,12 +32,15 @@ class CuratedFile(BaseModel):
 
 class _WatchlistFile(CuratedFile):
     terms: dict[str, float]
+    threshold: float = 0.0
 
 
 @dataclass(kw_only=True)
 class Watchlist:
     terms: dict[str, float]
     """Normalized n-gram to its log-odds z score toward the model corpus."""
+    threshold: float = 0.0
+    """Score above which prose counts as drifted. Chosen by `evaluate` for measured lists; zero means any hit."""
     replacements: dict[str, str] = field(default_factory=dict[str, str])
     """Normalized n-gram to a preferred alternative. Hand-maintained; `contrast` merges, never overwrites."""
     banned_patterns: list[re.Pattern[str]] = field(default_factory=list[re.Pattern[str]])
@@ -55,7 +58,10 @@ class Watchlist:
         except ValidationError as error:
             raise UserError(f'Invalid watchlist file {path}: {error}') from error
         return cls.from_parts(
-            terms=parsed.terms, replacements=parsed.replacements, banned_patterns=parsed.banned_patterns
+            terms=parsed.terms,
+            replacements=parsed.replacements,
+            banned_patterns=parsed.banned_patterns,
+            threshold=parsed.threshold,
         )
 
     @classmethod
@@ -67,15 +73,27 @@ class Watchlist:
         return cls.load(str(resource))
 
     @classmethod
+    def default(cls) -> Watchlist:
+        """The classifier the package ships: measured from real corpora, with the threshold `evaluate` chose."""
+        return cls.bundled('readme_2026_watchlist')
+
+    @classmethod
     def starter(cls) -> Watchlist:
         """The hand-curated list, for use before you have built corpora."""
         return cls.bundled('starter_watchlist')
 
     @classmethod
     def from_parts(
-        cls, *, terms: dict[str, float], replacements: dict[str, str], banned_patterns: list[str]
+        cls,
+        *,
+        terms: dict[str, float],
+        replacements: dict[str, str],
+        banned_patterns: list[str],
+        threshold: float = 0.0,
     ) -> Watchlist:
         """Build from raw strings, normalizing keys so `noting` and `note` are the same watched term."""
+        if threshold < 0:
+            raise UserError('Watchlist threshold must be zero or greater')
         try:
             compiled = [re.compile(pattern) for pattern in banned_patterns]
         except re.error as error:
@@ -83,6 +101,7 @@ class Watchlist:
         labels = {normalize_term(term): term for term in (*terms, *replacements)}
         return cls(
             terms={normalize_term(term): z for term, z in terms.items()},
+            threshold=threshold,
             replacements={normalize_term(term): replacement for term, replacement in replacements.items()},
             banned_patterns=compiled,
             labels=labels,
@@ -93,6 +112,7 @@ class Watchlist:
 
     def save(self, path: str | Path) -> None:
         payload = {
+            'threshold': self.threshold,
             'terms': {self.label(term): z for term, z in self.top_terms(len(self.terms))},
             'replacements': {self.label(term): replacement for term, replacement in self.replacements.items()},
             'banned_patterns': [pattern.pattern for pattern in self.banned_patterns],

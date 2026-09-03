@@ -6,23 +6,30 @@ from pathlib import Path
 
 from .. import _git
 from ..scoring import score_file
-from ._common import Command, add_watchlist_option, iter_prose_files, load_watchlist
+from ._common import (
+    Command,
+    add_threshold_option,
+    add_watchlist_option,
+    iter_prose_files,
+    load_watchlist,
+    resolve_threshold,
+)
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('files', nargs='+', type=Path, help='Files or directories to check.')
     add_watchlist_option(parser)
+    add_threshold_option(parser)
     parser.add_argument('--diff-base', default=None, metavar='REF', help='Score only lines added since this ref.')
-    parser.add_argument('--threshold', type=float, default=0.0, help='Fail when the score is above this.')
     parser.add_argument('--min-tokens', type=int, default=20, help='Skip scoring below this many tokens.')
 
 
 def run(args: argparse.Namespace) -> int:
     files: list[Path] = args.files
     diff_base: str | None = args.diff_base
-    threshold: float = args.threshold
     min_tokens: int = args.min_tokens
     watchlist = load_watchlist(args.watchlist)
+    threshold = resolve_threshold(watchlist, args.threshold)
     failed = False
     for path in iter_prose_files(files):
         if not path.is_file():
