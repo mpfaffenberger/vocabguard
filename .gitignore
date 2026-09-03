@@ -7,4 +7,7 @@ build/
 .pytest_cache/
 .ruff_cache/
 .coverage
+coverage
 corpus/
+reference*/
+baseline.json
