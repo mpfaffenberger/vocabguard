@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic_ai.exceptions import UserError
 
-from vocabguard.stats import CorpusCounts, jensen_shannon, log_odds_z
+from vocabguard.stats import CorpusCounts, jensen_shannon, log_odds_z, separation
 
 
 def test_log_odds_matches_hand_computation() -> None:
@@ -59,6 +59,28 @@ def test_corpus_counts_round_trip(tmp_path: Path) -> None:
     loaded = CorpusCounts.load(target)
     assert loaded == counts
     assert loaded.total == 6
+
+
+def test_separation_matches_hand_computation() -> None:
+    # Model scores beat baseline scores in 10 of the 12 pairs: 0.25 beats {0.1, 0.2}; 0.4 and 0.5 beat all four.
+    # Best cut is 0.35: every baseline document sits at or below it, two of three model documents sit above.
+    result = separation(baseline=[0.1, 0.2, 0.3, 0.35], model=[0.25, 0.4, 0.5])
+    assert result.auc == pytest.approx(10 / 12)
+    assert result.threshold == 0.35
+    assert result.true_positive_rate == pytest.approx(2 / 3)
+    assert result.false_positive_rate == 0.0
+    assert result.balanced_accuracy == pytest.approx(5 / 6)
+
+
+def test_separation_ties_are_chance() -> None:
+    result = separation(baseline=[1.0, 1.0], model=[1.0, 1.0])
+    assert result.auc == pytest.approx(0.5)
+    assert result.balanced_accuracy == pytest.approx(0.5)
+
+
+def test_separation_needs_both_sides() -> None:
+    with pytest.raises(ValueError, match='each side'):
+        separation(baseline=[], model=[1.0])
 
 
 def test_corpus_counts_rejects_bad_file(tmp_path: Path) -> None:

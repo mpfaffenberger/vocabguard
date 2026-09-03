@@ -17,6 +17,13 @@ def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--alpha0', type=float, default=500.0, help='Total prior mass for the Dirichlet prior.')
     parser.add_argument('--z', type=float, default=2.5, help='Minimum z toward the model corpus to be watched.')
     parser.add_argument(
+        '--top',
+        type=int,
+        default=None,
+        metavar='N',
+        help='Keep only the N highest z. With corpora of millions of tokens nearly every n-gram clears --z.',
+    )
+    parser.add_argument(
         '--curated',
         type=Path,
         default=None,
@@ -30,7 +37,10 @@ def run(args: argparse.Namespace) -> int:
     output: Path = args.output
     alpha0: float = args.alpha0
     z_min: float = args.z
+    top: int | None = args.top
     curated_path: Path | None = args.curated
+    if top is not None and top < 1:
+        raise UserError('--top must be at least 1')
     if not corpus_dir.is_dir():
         raise UserError(f'{corpus_dir} is not a directory')
     baseline = CorpusCounts.load(baseline_path)
@@ -40,13 +50,15 @@ def run(args: argparse.Namespace) -> int:
         raise UserError(f'no prose found under {corpus_dir}')
     scores = log_odds_z(model=model, baseline=baseline, alpha0=alpha0)
     curated = CuratedFile.load(curated_path) if curated_path else CuratedFile()
+    ranked = sorted(((term, z) for term, z in scores.items() if z > z_min), key=lambda item: item[1], reverse=True)
     watchlist = Watchlist.from_parts(
-        terms={term: z for term, z in scores.items() if z > z_min},
+        terms=dict(ranked[:top]),
         replacements=curated.replacements,
         banned_patterns=curated.banned_patterns,
     )
     watchlist.save(output)
-    status(f'{len(watchlist.terms)} watched n-grams (z > {z_min}) -> {output}')
+    cap = f', top {top}' if top is not None else ''
+    status(f'{len(watchlist.terms)} watched n-grams (z > {z_min}{cap}) -> {output}')
     return 0
 
 

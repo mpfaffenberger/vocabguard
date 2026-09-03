@@ -59,9 +59,17 @@ class Watchlist:
         )
 
     @classmethod
+    def bundled(cls, name: str) -> Watchlist:
+        """A list shipped inside the package: `starter_watchlist` or `readme_2026_watchlist`."""
+        resource = files('vocabguard.data').joinpath(f'{name}.json')
+        if not resource.is_file():
+            raise UserError(f'No bundled watchlist named {name!r}')
+        return cls.load(str(resource))
+
+    @classmethod
     def starter(cls) -> Watchlist:
-        """The hand-curated list shipped with the package, for use before you have built corpora."""
-        return cls.load(str(files('vocabguard.data').joinpath('starter_watchlist.json')))
+        """The hand-curated list, for use before you have built corpora."""
+        return cls.bundled('starter_watchlist')
 
     @classmethod
     def from_parts(

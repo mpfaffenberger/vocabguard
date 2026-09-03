@@ -100,6 +100,42 @@ def test_contrast_writes_watchlist_and_merges_curated(repo: Path) -> None:
     assert watchlist['banned_patterns'] == ['\u2014']
 
 
+def test_contrast_top_keeps_only_the_highest_z(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(['baseline', '--ref', 'base', '-o', 'baseline.json']) == 0
+    corpus = repo / 'corpus'
+    corpus.mkdir()
+    (corpus / 'README.md.md').write_text(CONTAMINATED)
+    args = ['contrast', '--baseline', 'baseline.json', '--corpus', 'corpus', '--alpha0', '10', '--z', '0.5']
+    assert main([*args, '-o', 'full.json']) == 0
+    assert main([*args, '-o', 'capped.json', '--top', '2']) == 0
+    full = json.loads((repo / 'full.json').read_text())['terms']
+    capped = json.loads((repo / 'capped.json').read_text())['terms']
+    assert len(full) > 2
+    assert list(capped) == list(full)[:2]
+    assert main([*args, '-o', 'bad.json', '--top', '0']) == 2
+    assert '--top' in capsys.readouterr().err
+
+
+def test_evaluate_grades_a_split(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    human = repo / 'human'
+    model = repo / 'model'
+    human.mkdir()
+    model.mkdir()
+    for index in range(5):
+        (human / f'{index}.md').write_text(f'{CLEAN} Version {index} adds nothing new.\n')
+        (model / f'{index}.md').write_text(f'{CONTAMINATED} Version {index} adds nothing new.\n')
+    args = ['evaluate', '--baseline-dir', 'human', '--corpus-dir', 'model', '--alpha0', '10', '--holdout', '0.4']
+    assert main([*args, '--z', '1.0']) == 0
+    out = capsys.readouterr().out
+    assert 'held out: 2 baseline / 2 model documents' in out
+    assert 'AUC: 1.000' in out
+    assert 'flags 100% of model documents and 0% of baseline documents' in out
+    assert main([*args, '--z', '50']) == 2
+    assert 'no n-grams cleared' in capsys.readouterr().err
+    assert main([*args, '--holdout', '1.5']) == 2
+    assert main(['evaluate', '--baseline-dir', 'missing', '--corpus-dir', 'model']) == 2
+
+
 def test_contrast_rejects_empty_corpus(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(['baseline', '--ref', 'base', '-o', 'baseline.json']) == 0
     (repo / 'empty').mkdir()
