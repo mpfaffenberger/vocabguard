@@ -173,7 +173,7 @@ Misconfiguration (an unknown mode, an empty `tools` sequence, a negative thresho
 
 ```yaml
 repos:
-  - repo: https://github.com/pydantic/vocabguard
+  - repo: https://github.com/mpfaffenberger/vocabguard
     rev: v0.1.0
     hooks:
       - id: vocabguard
