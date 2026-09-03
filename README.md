@@ -132,6 +132,20 @@ vocabguard contrast --baseline baseline.json --corpus corpus/ -o watchlist.json 
 }
 ```
 
+With corpora of millions of tokens nearly every n-gram clears `--z 2.5`, so cap the list with
+`--top 1000` and let `evaluate` pick the threshold.
+
+### 3b. Grade the watchlist before wiring it in
+
+```bash
+vocabguard evaluate --baseline-dir human/ --corpus-dir model/ --top 1000
+```
+
+`evaluate` builds the watchlist on 80% of each corpus, scores the other 20% with the same scorer the
+guard uses, and prints the AUC plus the threshold that best balances catches against false alarms.
+Use that threshold in the capability and in `check`; a threshold of `0.0` with a thousand-term list
+would fire on almost anything.
+
 ### 4. Wire the capability
 
 ```python
@@ -202,6 +216,41 @@ If you have not built corpora yet, `Watchlist.starter()` (or `vocabguard check` 
 `leverage`, `robust`, `seamless`, and `worth noting`, with modest z values and replacements. It is
 a starting point, not a measurement; `contrast` on your own history will disagree with it in both
 directions.
+
+## Measured README watchlist
+
+`Watchlist.bundled('readme_2026_watchlist')` is a measurement. It was built with the commands above
+from two corpora of GitHub READMEs: 4,319 from repositories with at least 500 stars whose last push
+was before 2025 (22 languages, weighted toward TypeScript, Python, Java, Rust, Go, JavaScript, and
+C; 6.4M prose tokens), and 1,047 from repositories with Claude Code commits during 2026 (2.1M prose
+tokens). Markup, URLs, and code were stripped before counting.
+
+```bash
+vocabguard contrast --baseline human.json --corpus claude/ -o readme_2026_watchlist.json --top 1000
+vocabguard evaluate --baseline-dir human/ --corpus-dir claude/ --top 1000
+```
+
+```text
+AUC: 0.872
+threshold 1.60: flags 75% of model documents and 8% of baseline documents
+```
+
+Use it with `threshold=1.6`. What it measures, and what it does not:
+
+- **Voice**: the 2026 corpus over-uses `every`, `no`, `across`, `via`, `full`, `with`, and `what`,
+  and under-uses `the`, `of`, `to`, `you`, `can`, `will`, `be`, `if`. Nominal, list-shaped
+  fragments instead of sentences aimed at a reader.
+- **Topic**: `agent`, `memory`, `session`, `skill`, `hook`, `tool`, `llm`, `vector` lead the list
+  because that is what the 2026 repositories are about. A human writing about an agent in plain
+  sentences scores around the threshold; the test suite pins that case rather than hiding it.
+- **Attribution is per repository, not per document.** Some READMEs in the 2026 corpus were typed
+  by people; some pre-2025 READMEs were not. The 8% false alarm rate was measured on pre-2025
+  READMEs, which rarely discuss agents.
+- **English only.** The 2026 corpus has more non-English READMEs, so `de` and `si` carry high z.
+  Non-English prose scores high for the wrong reason.
+
+The corpora are not in the repository. With `instruct=True` the capability lists the top terms,
+which for this list are topic words; consider `instruct=False` or a pruned copy for agent projects.
 
 ## Watchlist file
 
