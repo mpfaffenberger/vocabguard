@@ -4,7 +4,7 @@ build-backend = 'hatchling.build'
 
 [project]
 name = 'vocabguard'
-version = "0.2.0"
+version = "0.3.0"
 description = 'Pydantic AI capability that catches vocabulary drift in agent-written prose before the write lands'
 readme = 'README.md'
 license = 'MIT'
