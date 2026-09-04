@@ -9,7 +9,78 @@ It ships with a classifier measured from real corpora, and a CLI that scores tex
 your own watchlist from your repository's history, runs the same check as a pre-commit hook, and
 reports drift over time.
 
-## Sixty seconds
+## The whole thing in one file
+
+A triage agent that files a ticket and writes notes to disk. The guard watches the ticket's
+`summary`, the text every `edit_file` call writes, and any plain-text reply. When one of those
+drifts, a second, smaller model rewrites it in plain sentences before it lands; the triage model
+never sees a retry.
+
+```python
+from pathlib import Path
+
+from pydantic import BaseModel
+from pydantic_ai import Agent
+
+from vocabguard import OutputField, TextOutput, ToolArgument, VocabularyGuard
+
+
+class CaseTicket(BaseModel):
+    summary: str
+    priority: int
+
+
+guard = VocabularyGuard(
+    rewriter='openai:gpt-5.6-luna',
+    targets=[
+        OutputField(CaseTicket, 'summary'),  # a field of the structured output
+        ToolArgument('edit_file', 'content'),  # an argument of a tool call
+        TextOutput(),  # the final text, when the agent answers in prose instead
+    ],
+    on_hit=lambda report: print(report.describe()),
+)
+
+# The agent files a ticket, or replies in text when there is nothing to file.
+agent = Agent(
+    'openai:gpt-5.6-luna',
+    output_type=[CaseTicket, str],
+    instructions='Triage bug reports. Write your working notes to docs/triage/<slug>.md, then file a ticket.',
+    capabilities=[guard],
+)
+
+
+@agent.tool_plain
+def edit_file(path: str, content: str) -> str:
+    """Write a file under docs/."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
+    return f'wrote {path}'
+
+
+result = agent.run_sync(
+    'Bug report: exporting a project with more than 200 assets hangs the desktop app at 97%. '
+    'Reproducible on macOS and Windows since 3.4.1. Three customers affected, one enterprise.'
+)
+print(result.output)
+```
+
+What happens on a run where the model drifts:
+
+1. The model calls `edit_file('docs/triage/export-hang.md', ...)`. The guard scores `content` as
+   markdown, and a note in the usual 2026 register comes back around 1.8 against a threshold of
+   0.41: `full`, `every`, `across`, `no`. `on_hit` prints the report. The rewriter is handed the text and the terms, its reply is
+   scored again and passes, and the file is written with the rewritten content. The tool returns
+   `wrote docs/triage/export-hang.md` as if nothing happened.
+2. The model files `CaseTicket(summary=..., priority=1)`. `summary` scores clean, so the output is
+   returned untouched.
+3. If the model had answered in prose instead, `TextOutput()` would have scored that reply the same
+   way.
+
+Every piece of that is optional. `VocabularyGuard()` with no arguments watches every tool call
+and every response with the bundled classifier and asks the model itself to rephrase.
+
+## Sixty seconds, no code
 
 ```bash
 uvx vocabguard "Agent runtime with persistent memory across sessions. Every task runs in a worker."
@@ -17,17 +88,9 @@ echo "Some text you are unsure about" | uvx vocabguard
 ```
 
 No install step: `uvx` fetches the package and runs it. Both forms print the score, the terms
-that drove it, and `drifted` or `ok`, and exit 1 on drift. In an agent, the same classifier at
-the same threshold is one line:
+that drove it, and `drifted` or `ok`, and exit 1 on drift.
 
-```python
-from pydantic_ai import Agent
-from vocabguard import VocabularyGuard
-
-agent = Agent('openai:gpt-5.6-luna', capabilities=[VocabularyGuard()])
-```
-
-Where that classifier came from, and what it can and cannot tell you, is under
+Where the classifier came from, and what it can and cannot tell you, is under
 [Measured README watchlist](#measured-readme-watchlist). Read the constraints first.
 
 ## Constraints
