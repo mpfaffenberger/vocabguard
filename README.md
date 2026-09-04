@@ -1,7 +1,7 @@
 # vocabguard
 
 <p align="center">
-  <img src="docs/images/mascot.png" width="420" alt="An owl in a guard cap at a checkpoint booth, stamping a card that says ok, bouncing a card that says delve off a red X, and handing a card that says every back to a person.">
+  <img src="docs/images/mascot.png" width="420" alt="An owl in a guard cap with the Pydantic pyramid on it, at a checkpoint booth, stamping a card that says ok, bouncing a card that says delve off a red X, and handing a card that says every back to a person.">
 </p>
 
 A [Pydantic AI](https://ai.pydantic.dev) capability that watches an agent's tool calls and
