@@ -30,11 +30,19 @@ class CaseTicket(BaseModel):
     priority: int
 
 
+def edit_file(path: str, content: str) -> str:
+    """Write a file under docs/."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
+    return f'wrote {path}'
+
+
 guard = VocabularyGuard(
     rewriter='openai:gpt-5.6-luna',
     targets=[
-        OutputField(CaseTicket, 'summary'),  # a field of the structured output
-        ToolArgument('edit_file', 'content'),  # an argument of a tool call
+        OutputField(CaseTicket, lambda ticket: ticket.summary),  # a field of the structured output
+        ToolArgument(edit_file, 'content'),  # an argument of a tool call
         TextOutput(),  # the final text, when the agent answers in prose instead
     ],
     on_hit=lambda report: print(report.describe()),
@@ -45,18 +53,9 @@ agent = Agent(
     'openai:gpt-5.6-luna',
     output_type=[CaseTicket, str],
     instructions='Triage bug reports. Write your working notes to docs/triage/<slug>.md, then file a ticket.',
+    tools=[edit_file],
     capabilities=[guard],
 )
-
-
-@agent.tool_plain
-def edit_file(path: str, content: str) -> str:
-    """Write a file under docs/."""
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content)
-    return f'wrote {path}'
-
 
 result = agent.run_sync(
     'Bug report: exporting a project with more than 200 assets hangs the desktop app at 97%. '
@@ -283,22 +282,31 @@ class CaseTicket(BaseModel):
     priority: int
 
 
+def edit_file(path: str, content: str) -> str: ...
+
+
 guard = VocabularyGuard(
     rewriter='openai:gpt-5.6-luna',
     targets=[
-        OutputField(CaseTicket, 'summary'),  # a field of the structured output
-        ToolArgument('edit_file', 'content'),  # an argument of a tool call
+        OutputField(CaseTicket, lambda ticket: ticket.summary),  # a field of the structured output
+        ToolArgument(edit_file, 'content'),  # an argument of a tool call
         TextOutput(),  # the final text of the run
     ],
 )
 ```
+
+The targets take references so mistakes surface early. `OutputField` takes the output class and a
+selector; the type checker verifies `ticket.summary` exists, and at construction the selector is
+resolved to the field name (pydantic models and dataclasses). `ToolArgument` takes the tool
+function and checks the argument against its signature, including that it is annotated `str`.
+Both also accept plain strings, `OutputField(CaseTicket, 'summary')` and
+`ToolArgument('edit_file', 'content')`, for tools that have no Python function behind them.
 
 A model name or instance gets the bundled rewrite instructions (plain sentences addressed to a
 reader, same content, same length, code and markup untouched). Pass your own `Agent[None, str]`
 to control the instructions. With `targets` set, `tools` and `output` are ignored; only the
 named sites are scored. Python file content is never sent to a rewriter, since a rewritten
 docstring is one indentation away from a syntax error; those hits follow `mode` instead.
-`OutputField` accepts pydantic models and dataclasses and checks the field name at construction.
 
 ### 5. Run the same check in pre-commit
 

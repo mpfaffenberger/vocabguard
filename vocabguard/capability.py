@@ -216,7 +216,7 @@ class VocabularyGuard(AbstractCapability[AgentDepsT]):
         return updated
 
     def _tool_targets(self, tool_name: str) -> list[ToolArgument]:
-        return [t for t in self.targets or () if isinstance(t, ToolArgument) and t.tool == tool_name]
+        return [t for t in self.targets or () if isinstance(t, ToolArgument) and t.name == tool_name]
 
     def _score_argument(self, target: ToolArgument, args: Mapping[str, object]) -> HitReport | None:
         value = args.get(target.argument)
