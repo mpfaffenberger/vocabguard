@@ -221,7 +221,7 @@ class CaseTicket(BaseModel):
 
 
 guard = VocabularyGuard(
-    rewriter='openai:gpt-5-mini',
+    rewriter='openai:gpt-5.6-luna',
     targets=[
         OutputField(CaseTicket, 'summary'),  # a field of the structured output
         ToolArgument('edit_file', 'content'),  # an argument of a tool call
