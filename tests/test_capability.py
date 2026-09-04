@@ -12,6 +12,7 @@ from pydantic_ai import (
     RetryPromptPart,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
 )
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -87,6 +88,9 @@ class Harness:
 
     def retries(self) -> list[RetryPromptPart]:
         return [part for request in self.requests for part in request.parts if isinstance(part, RetryPromptPart)]
+
+    def tool_returns(self) -> list[ToolReturnPart]:
+        return [part for request in self.requests for part in request.parts if isinstance(part, ToolReturnPart)]
 
 
 async def test_file_write_retry_round_trip() -> None:
@@ -208,6 +212,33 @@ async def test_banned_pattern_fires_below_min_tokens() -> None:
     assert harness.executed == [('edit_file', {'path': 'notes.md', 'content': 'short text'})]
     (retry,) = harness.retries()
     assert 'banned pattern' in retry.model_response()
+
+
+async def test_nudge_mode_executes_and_hands_the_model_the_report() -> None:
+    hits: list[HitReport] = []
+    guard: VocabularyGuard[object] = VocabularyGuard(WATCHLIST, mode='nudge', on_hit=hits.append)
+    harness = Harness(guard, [edit(CONTAMINATED), edit(CLEAN)])
+    await harness.agent().run('write')
+    # Both writes landed: nothing was blocked.
+    assert [content for _, args in harness.executed for content in [args['content']]] == [CONTAMINATED, CLEAN]
+    assert harness.retries() == []
+    first, second = harness.tool_returns()
+    assert isinstance(first.content, str)
+    assert first.content.startswith('ok\n\nedit_file(notes.md): vocabulary score')
+    assert "'leverage' (z=4.0, x2, prefer: use)" in first.content
+    assert 'consider rewriting the flagged passages with another edit_file call' in first.content
+    assert second.content == 'ok'
+    assert len(hits) == 1
+
+
+async def test_nudge_mode_leaves_model_responses_alone() -> None:
+    hits: list[HitReport] = []
+    guard: VocabularyGuard[object] = VocabularyGuard(WATCHLIST, mode='nudge', on_hit=hits.append)
+    harness = Harness(guard, [say(CONTAMINATED)])
+    result = await harness.agent().run('write')
+    assert result.output == CONTAMINATED
+    assert harness.retries() == []
+    assert len(hits) == 1
 
 
 async def test_default_guard_is_the_bundled_classifier_at_its_threshold() -> None:

@@ -54,8 +54,10 @@ Read these before the examples; they shape how the guard behaves.
 - **One tokenizer everywhere.** Baseline, corpus, watchlist keys, and the text under test all go
   through the same lowercase, lemmatize, unigram-plus-bigram pipeline. Hand-written watchlist keys
   are normalized on load, so `noting` and `note` are the same term.
-- **No model requests from the guard.** Two commands talk to a model: `vocabguard rewrite` and
-  `vocabguard scrape`. The capability itself does no I/O.
+- **No model requests from the guard, unless you ask for them.** Two commands talk to a model:
+  `vocabguard rewrite` and `vocabguard scrape`. The capability itself does no I/O, with one
+  opt-in exception: a `rewriter` is a second agent, and it is called only when a hit fires at a
+  site you named in `targets`.
 - **git is required for the CLI.** `baseline`, `rewrite`, `report`, and `check --diff-base` shell
   out to `git`; there is no git library dependency.
 - **Python 3.11 or later.** Dependencies are `pydantic-ai-slim`, `httpx`, and `simplemma`, a
@@ -197,14 +199,56 @@ guard = VocabularyGuard(
 )
 ```
 
-In `retry` mode a hit above threshold raises `ModelRetry`. For a tool call, the model is asked to
-resubmit the same call with the wording fixed; for a response, to reply again. The message lists
-the terms, their z scores, and replacements. In `warn` mode everything goes through and only
-`on_hit` is called. `on_hit` is called on every hit in both modes, so you can wire it to your own
-logging or metrics; `HitReport.source` says which tool call or response it came from.
+Three modes decide what a hit above threshold does:
 
-Misconfiguration (an unknown mode, an empty `tools` sequence, a negative threshold) raises
-`UserError` at construction, not when the first tool call arrives.
+- **`retry`** raises `ModelRetry` before the tool runs. For a tool call, the model is asked to
+  resubmit the same call with the wording fixed; for a response, to reply again. The message
+  lists the terms, their z scores, and replacements.
+- **`nudge`** lets the tool run, then appends the report to the tool result with a suggestion to
+  rewrite. The model decides. Model output cannot be nudged (there is no result to attach to), so
+  it is treated as `warn`.
+- **`warn`** lets everything through.
+
+`on_hit` is called on every hit in every mode, so you can wire it to your own logging or
+metrics; `HitReport.source` says which tool call, field, or response it came from.
+
+Misconfiguration (an unknown mode, an empty `tools` sequence, a negative threshold, a rewriter
+without targets, an output field that does not exist) raises `UserError` at construction, not
+when the first tool call arrives.
+
+### 4b. Name the sites, and let a second agent do the rewriting
+
+`targets` says exactly where the guard looks, and `rewriter` is a second agent that rewrites
+what fires there, so the primary model never sees a retry. The rewritten text is scored again;
+only if it still drifts does `mode` apply.
+
+```python
+from pydantic import BaseModel
+
+from vocabguard import OutputField, TextOutput, ToolArgument, VocabularyGuard
+
+
+class CaseTicket(BaseModel):
+    summary: str
+    priority: int
+
+
+guard = VocabularyGuard(
+    rewriter='openai:gpt-5-mini',
+    targets=[
+        OutputField(CaseTicket, 'summary'),  # a field of the structured output
+        ToolArgument('edit_file', 'content'),  # an argument of a tool call
+        TextOutput(),  # the final text of the run
+    ],
+)
+```
+
+A model name or instance gets the bundled rewrite instructions (plain sentences addressed to a
+reader, same content, same length, code and markup untouched). Pass your own `Agent[None, str]`
+to control the instructions. With `targets` set, `tools` and `output` are ignored; only the
+named sites are scored. Python file content is never sent to a rewriter, since a rewritten
+docstring is one indentation away from a syntax error; those hits follow `mode` instead.
+`OutputField` accepts pydantic models and dataclasses and checks the field name at construction.
 
 ### 5. Run the same check in pre-commit
 

@@ -2,6 +2,16 @@
 
 from .capability import VocabularyGuard
 from .scoring import BannedMatch, HitReport, TermHit
+from .targets import OutputField, TextOutput, ToolArgument
 from .watchlist import Watchlist
 
-__all__ = ('BannedMatch', 'HitReport', 'TermHit', 'VocabularyGuard', 'Watchlist')
+__all__ = (
+    'BannedMatch',
+    'HitReport',
+    'OutputField',
+    'TermHit',
+    'TextOutput',
+    'ToolArgument',
+    'VocabularyGuard',
+    'Watchlist',
+)
