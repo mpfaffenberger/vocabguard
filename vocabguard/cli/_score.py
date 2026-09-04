@@ -40,7 +40,7 @@ def run(args: argparse.Namespace) -> int:
         print(json.dumps({**asdict(report), 'threshold': threshold, 'drifted': drifted}, ensure_ascii=False))
     else:
         print(report.describe())
-        print(f'threshold {threshold:.2f}: {"drifted" if drifted else "ok"}')
+        print(f'score {report.score:.3f} vs threshold {threshold:.2f}: {"drifted" if drifted else "ok"}')
     return 1 if drifted else 0
 
 

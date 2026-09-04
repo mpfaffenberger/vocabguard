@@ -317,7 +317,7 @@ docstring is one indentation away from a syntax error; those hits follow `mode` 
 ```yaml
 repos:
   - repo: https://github.com/mpfaffenberger/vocabguard
-    rev: v0.3.0
+    rev: v0.3.1
     hooks:
       - id: vocabguard
         args: [--watchlist, watchlist.json, --diff-base, origin/main]

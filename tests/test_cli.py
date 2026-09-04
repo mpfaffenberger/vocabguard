@@ -247,9 +247,10 @@ def test_score_uses_the_bundled_classifier_and_its_threshold(capsys: pytest.Capt
     out = capsys.readouterr().out
     assert out.startswith('text: vocabulary score')
     assert "'agent'" in out
-    assert out.rstrip().endswith('threshold 0.41: drifted')
+    verdict = out.rstrip().splitlines()[-1]
+    assert verdict.startswith('score ') and verdict.endswith(' vs threshold 0.41: drifted')
     assert main(['score', PLAIN]) == 0
-    assert capsys.readouterr().out.rstrip().endswith('threshold 0.41: ok')
+    assert capsys.readouterr().out.rstrip().endswith(' vs threshold 0.41: ok')
     assert main(['score', DRIFTED, '--threshold', '100']) == 0
 
 
