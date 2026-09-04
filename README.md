@@ -1,5 +1,9 @@
 # vocabguard
 
+<p align="center">
+  <img src="docs/images/mascot.png" width="420" alt="A puppy in a guard cap at a checkpoint booth, stamping a card that says ok, bouncing a card that says delve off a red X, and handing a card that says every back to a person.">
+</p>
+
 A [Pydantic AI](https://ai.pydantic.dev) capability that watches an agent's tool calls and
 responses, scores the prose in them against a per-repo watchlist of model-favored terms, and
 returns a `ModelRetry` naming the terms and preferred replacements so the model rephrases before
