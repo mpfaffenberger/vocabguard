@@ -55,7 +55,7 @@ def resolve_threshold(watchlist: Watchlist, override: float | None) -> float:
 
 
 def add_source_options(parser: argparse.ArgumentParser) -> None:
-    """Prose comes from a git ref or a plain directory (for example one built by `vocabguard scrape`)."""
+    """Prose comes from a git ref or a plain directory of files."""
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--ref', help='Git ref to read prose files from.')
     source.add_argument('--dir', type=Path, help='Directory to read prose files from.')

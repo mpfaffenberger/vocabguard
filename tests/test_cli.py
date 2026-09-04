@@ -274,11 +274,3 @@ def test_source_options_are_exclusive_and_required(tmp_path: Path, capsys: pytes
         main(['baseline', '--ref', 'HEAD', '--dir', str(tmp_path), '-o', str(tmp_path / 'b.json')])
     assert main(['baseline', '--dir', str(tmp_path / 'missing'), '-o', str(tmp_path / 'b.json')]) == 2
     assert 'not a directory' in capsys.readouterr().err
-
-
-def test_scrape_uses_the_openrouter_key_without_a_browser(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # With a key in the environment no OAuth flow runs; the first model request is then refused by the
-    # test conftest, which proves the OpenRouter model was built and asked.
-    monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-or-test')
-    with pytest.raises(RuntimeError, match='Model requests are not allowed'):
-        main(['scrape', '-o', str(tmp_path / 'corpus')])

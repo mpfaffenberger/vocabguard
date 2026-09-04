@@ -1,4 +1,4 @@
-"""Model requests happen here and in `scrape`, nowhere else in the package."""
+"""Model requests happen here and in the optional rewriter agent, nowhere else in the package."""
 
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 
 from pydantic_ai.exceptions import UserError
 
-from . import _baseline, _check, _contrast, _evaluate, _report, _rewrite, _score, _scrape
+from . import _baseline, _check, _contrast, _evaluate, _report, _rewrite, _score
 from ._common import Command, CommandRunner
 
 __all__ = ('main',)
@@ -16,7 +16,6 @@ __all__ = ('main',)
 COMMANDS: tuple[Command, ...] = (
     _score.COMMAND,
     _check.COMMAND,
-    _scrape.COMMAND,
     _baseline.COMMAND,
     _rewrite.COMMAND,
     _contrast.COMMAND,
