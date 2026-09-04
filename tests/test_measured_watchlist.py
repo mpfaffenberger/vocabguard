@@ -2,7 +2,7 @@
 
 The corpora themselves are not in the repository, so these tests pin behaviour on synthetic samples
 in the two styles the contrast separated: nominal, list-shaped agent prose versus sentences aimed at
-a reader. The third sample documents the known weakness rather than hiding it.
+a reader. The third sample is the case evenness weighting exists for: a human voice on an agent topic.
 """
 
 from __future__ import annotations
@@ -12,9 +12,6 @@ from pydantic_ai.exceptions import UserError
 
 from vocabguard.scoring import score_text
 from vocabguard.watchlist import Watchlist
-
-RECOMMENDED_THRESHOLD = 1.6
-"""From `vocabguard evaluate --top 1000` on the corpora described in the README."""
 
 DRIFTED = (
     'Agent runtime with persistent memory across sessions. Every task runs in an isolated worker with full '
@@ -36,29 +33,35 @@ HUMAN_VOICE_AGENT_TOPIC = (
 
 @pytest.fixture(scope='module')
 def measured() -> Watchlist:
-    return Watchlist.bundled('readme_2026_watchlist')
+    return Watchlist.default()
 
 
-def test_bundled_list_is_large_and_positive(measured: Watchlist) -> None:
-    assert len(measured.terms) > 900
+def test_bundled_list_is_large_positive_and_voice_led(measured: Watchlist) -> None:
+    assert len(measured.terms) == 1000
+    assert measured.threshold == 0.41
     assert all(z > 0 for z in measured.terms.values())
-    assert measured.top_terms(1)[0][0] == 'agent'
+    top = [term for term, _ in measured.top_terms(10)]
+    assert 'every' in top
+    # Evenness weighting demotes the topic word that led the unweighted list.
+    assert measured.terms['agent'] < measured.terms['every'] / 2
     assert not measured.replacements and not measured.banned_patterns
 
 
 def test_drifted_prose_clears_the_threshold_and_clean_prose_does_not(measured: Watchlist) -> None:
     drifted = score_text(DRIFTED, measured)
     clean = score_text(CLEAN, measured)
-    assert drifted.score > RECOMMENDED_THRESHOLD * 5
-    assert clean.score < RECOMMENDED_THRESHOLD
-    assert {hit.term for hit in drifted.terms} >= {'agent', 'session', 'every'}
+    assert drifted.score > measured.threshold * 5
+    assert clean.score < measured.threshold / 2
+    assert {hit.term for hit in drifted.terms} >= {'every', 'session', 'across'}
 
 
-def test_topic_alone_scores_between_the_two(measured: Watchlist) -> None:
-    # A human-voiced README about an agent lands just above the cut. The measured list is part voice and
-    # part topic, and this is the topic part; the README says so. It must stay far below the drifted sample.
+def test_human_voice_on_an_agent_topic_lands_at_the_cut(measured: Watchlist) -> None:
+    # This sample scored 1.85 against the unweighted list (threshold 1.6). With evenness weighting the
+    # topic words carry little and it lands just under the cut. Pinned as "at the cut", not "comfortably
+    # clean": voice is the fair reason it is not lower.
     topical = score_text(HUMAN_VOICE_AGENT_TOPIC, measured).score
-    assert score_text(CLEAN, measured).score < topical < score_text(DRIFTED, measured).score / 4
+    assert score_text(CLEAN, measured).score < topical <= measured.threshold
+    assert topical < score_text(DRIFTED, measured).score / 8
 
 
 def test_unknown_bundled_name_is_a_user_error() -> None:

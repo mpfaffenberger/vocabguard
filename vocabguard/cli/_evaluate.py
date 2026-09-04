@@ -15,9 +15,9 @@ from pydantic_ai.exceptions import UserError
 
 from ..normalize import normalize
 from ..scoring import score_prose
-from ..stats import CorpusCounts, log_odds_z, separation
+from ..stats import CorpusCounts, separation
 from ..watchlist import Watchlist
-from ._common import Command, extract_prose, iter_prose_files
+from ._common import Command, add_contrast_options, describe_ranking, extract_prose, iter_prose_files, rank_terms
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -25,9 +25,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--corpus-dir', type=Path, required=True, help='Directory of model prose files.')
     parser.add_argument('--holdout', type=float, default=0.2, help='Fraction of each corpus kept for scoring.')
     parser.add_argument('--seed', type=int, default=0, help='Shuffle seed, so runs are comparable.')
-    parser.add_argument('--alpha0', type=float, default=500.0, help='Total prior mass for the Dirichlet prior.')
-    parser.add_argument('--z', type=float, default=2.5, help='Minimum z toward the model corpus to be watched.')
-    parser.add_argument('--top', type=int, default=None, metavar='N', help='Keep only the N highest z.')
+    add_contrast_options(parser)
     parser.add_argument('--min-tokens', type=int, default=20, help='Documents shorter than this are dropped.')
 
 
@@ -54,9 +52,6 @@ def run(args: argparse.Namespace) -> int:
     corpus_dir: Path = args.corpus_dir
     holdout: float = args.holdout
     seed: int = args.seed
-    alpha0: float = args.alpha0
-    z_min: float = args.z
-    top: int | None = args.top
     min_tokens: int = args.min_tokens
     if not 0 < holdout < 1:
         raise UserError('--holdout must be between 0 and 1')
@@ -68,24 +63,20 @@ def run(args: argparse.Namespace) -> int:
     baseline_train, baseline_test = _split(baseline_docs, holdout, seed)
     model_train, model_test = _split(model_docs, holdout, seed)
 
-    scores = log_odds_z(
-        model=CorpusCounts.from_documents(model_train),
-        baseline=CorpusCounts.from_documents(baseline_train),
-        alpha0=alpha0,
+    ranked = rank_terms(
+        args, model=CorpusCounts.from_documents(model_train), baseline=CorpusCounts.from_documents(baseline_train)
     )
-    ranked = sorted(((term, z) for term, z in scores.items() if z > z_min), key=lambda item: (-item[1], item[0]))
-    watchlist = Watchlist.from_parts(terms=dict(ranked[:top]), replacements={}, banned_patterns=[])
+    watchlist = Watchlist.from_parts(terms=dict(ranked), replacements={}, banned_patterns=[])
     if not watchlist.terms:
-        raise UserError(f'no n-grams cleared z > {z_min}; lower --z or use larger corpora')
+        raise UserError(f'no n-grams cleared z > {args.z}; lower --z or use larger corpora')
     result = separation(
         baseline=[score_prose([doc], watchlist, min_tokens=min_tokens).score for doc in baseline_test],
         model=[score_prose([doc], watchlist, min_tokens=min_tokens).score for doc in model_test],
     )
 
-    cap = f', top {top}' if top is not None else ''
     print(f'train: {len(baseline_train)} baseline / {len(model_train)} model documents')
     print(f'held out: {len(baseline_test)} baseline / {len(model_test)} model documents')
-    print(f'watchlist: {len(watchlist.terms)} terms (z > {z_min}{cap})')
+    print(f'watchlist: {describe_ranking(args, len(watchlist.terms))}')
     print(f'AUC: {result.auc:.3f}')
     print(
         f'threshold {result.threshold:.2f}: flags {result.true_positive_rate:.0%} of model documents '

@@ -48,7 +48,7 @@ def test_threshold_defaults_to_zero_and_rejects_negatives(tmp_path: Path) -> Non
 
 def test_default_is_the_measured_classifier() -> None:
     default = Watchlist.default()
-    assert default.threshold == 1.6
+    assert default.threshold == 0.41
     assert default.terms == Watchlist.bundled('readme_2026_watchlist').terms
     assert Watchlist.starter().threshold == 0.0
 

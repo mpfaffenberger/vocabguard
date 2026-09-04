@@ -245,7 +245,7 @@ async def test_default_guard_is_the_bundled_classifier_at_its_threshold() -> Non
     guard: VocabularyGuard[object] = VocabularyGuard()
     assert guard.watchlist.terms == Watchlist.default().terms
     assert guard.threshold is None
-    assert guard.effective_threshold == 1.6
+    assert guard.effective_threshold == Watchlist.default().threshold
     explicit: VocabularyGuard[object] = VocabularyGuard(threshold=0.5)
     assert explicit.effective_threshold == 0.5
     listed: VocabularyGuard[object] = VocabularyGuard(WATCHLIST)

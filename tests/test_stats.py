@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic_ai.exceptions import UserError
 
-from vocabguard.stats import CorpusCounts, jensen_shannon, log_odds_z, separation
+from vocabguard.stats import CorpusCounts, evenness, jensen_shannon, log_odds_z, separation
 
 
 def test_log_odds_matches_hand_computation() -> None:
@@ -59,6 +59,31 @@ def test_corpus_counts_round_trip(tmp_path: Path) -> None:
     loaded = CorpusCounts.load(target)
     assert loaded == counts
     assert loaded.total == 6
+
+
+def test_evenness_is_document_share_of_occurrences() -> None:
+    # 'the' appears once in each of three documents (3 docs / 3 uses = 1.0).
+    # 'cat' appears four times in a single document (1 doc / 4 uses = 0.25).
+    model = CorpusCounts.from_documents(['the cat cat cat cat', 'the dog', 'the bird'])
+    baseline = CorpusCounts.from_documents(['a fish'])
+    spread = evenness(model=model, baseline=baseline)
+    assert spread['the'] == pytest.approx(1.0)
+    assert spread['cat'] == pytest.approx(0.25)
+    assert spread['fish'] == pytest.approx(1.0)
+    with pytest.raises(UserError, match='document frequencies'):
+        evenness(model=model, baseline=CorpusCounts(total=1, counts=Counter({'a': 1})))
+
+
+def test_corpus_counts_round_trip_keeps_document_frequency(tmp_path: Path) -> None:
+    counts = CorpusCounts.from_documents(['the cat', 'the dog'])
+    counts.save(tmp_path / 'c.json')
+    loaded = CorpusCounts.load(tmp_path / 'c.json')
+    assert loaded.documents == 2
+    assert loaded.document_counts['the'] == 2
+    assert loaded.document_counts['cat'] == 1
+    (tmp_path / 'legacy.json').write_text('{"total": 2, "counts": {"the": 2}}')
+    legacy = CorpusCounts.load(tmp_path / 'legacy.json')
+    assert legacy.documents == 0 and not legacy.document_counts
 
 
 def test_separation_matches_hand_computation() -> None:

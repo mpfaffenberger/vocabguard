@@ -37,12 +37,34 @@ one-off words from the watchlist. The default of 500 suits corpora of a few tens
 tokens. A small baseline with a large `alpha0` produces very few watched terms; lower `alpha0`
 before lowering `z`.
 
+## Evenness weighting
+
+Log-odds cannot tell a change in voice from a change in subject: if one corpus is about agents,
+`agent` gets a large z. The two differ in how they spread across documents. For each n-gram over
+the pooled corpora:
+
+```
+evenness_w = documents containing w / total occurrences of w
+```
+
+A word used once in most documents scores near 1; a word used many times in a few documents
+scores near 0. Terms that pass the z cutoff are ranked by `z_w * evenness_w ** gamma`, and that
+weighted value is what the watchlist stores. `gamma` is `--evenness`, default 1. Zero disables the
+weighting; values past about 1.5 surface scaffold section headers, which appear exactly once in
+every generated document. On the README corpora described in the project README, gamma 1 kept
+the held-out AUC (0.869 against 0.872) while cutting false alarms from 8% to 6% and moving
+`agent` from the top of the list to the middle.
+
+The cutoff applies to the raw z, since it is a significance test; the weighting only reorders the
+terms that pass it. Evenness needs document frequencies, which `baseline` has recorded since
+version 0.3; older baseline files load, and `contrast` asks for a rebuild when weighting is on.
+
 ## Scoring
 
 Given the token list `T` of the prose under test and watchlist `W`:
 
 ```
-score = sum(max(0, z_w) for w in T if w in W) / len(T)
+score = sum(max(0, z_w) for w in T if w in W) / len(T)   # z_w is the stored (weighted) value
 ```
 
 Terms with negative z can appear in a watchlist only if it was edited by hand; they are reported

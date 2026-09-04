@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from vocabguard import Watchlist
 from vocabguard.cli import main
 
 STARTER = ['--watchlist', str(files('vocabguard.data').joinpath('starter_watchlist.json'))]
@@ -99,10 +100,44 @@ def test_contrast_writes_watchlist_and_merges_curated(repo: Path) -> None:
         == 0
     )
     watchlist = json.loads((repo / 'watchlist.json').read_text())
-    assert watchlist['terms']['leverage'] > 1.0
+    assert watchlist['terms']['leverage'] > 0
     assert 'parser' not in watchlist['terms']
     assert watchlist['replacements'] == {'leverage': 'use'}
     assert watchlist['banned_patterns'] == ['\u2014']
+
+
+def test_contrast_evenness_favours_spread_terms_over_bursty_ones(
+    repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 'delve' appears once in each of four documents; 'leverage' appears four times in one. Same raw
+    # count, so similar z, but only the spread term keeps its weight once evenness is applied.
+    assert main(['baseline', '--ref', 'base', '-o', 'baseline.json']) == 0
+    corpus = repo / 'corpus'
+    corpus.mkdir()
+    for index in range(4):
+        (corpus / f'{index}.md').write_text(f'{CLEAN} We delve into the format here.\n')
+    (corpus / 'bursty.md').write_text(f'{CLEAN} Leverage, leverage, leverage, and leverage again.\n')
+    args = ['contrast', '--baseline', 'baseline.json', '--corpus', 'corpus', '--alpha0', '10', '--z', '0.5']
+    assert main([*args, '-o', 'raw.json', '--evenness', '0']) == 0
+    assert main([*args, '-o', 'weighted.json']) == 0
+    raw = json.loads((repo / 'raw.json').read_text())['terms']
+    weighted = json.loads((repo / 'weighted.json').read_text())['terms']
+    assert raw['delve'] == pytest.approx(raw['leverage'], rel=0.15)
+    assert weighted['delve'] == pytest.approx(raw['delve'])
+    assert weighted['leverage'] == pytest.approx(raw['leverage'] / 4)
+    assert 'evenness^1' in capsys.readouterr().err
+    assert main([*args, '-o', 'bad.json', '--evenness', '-1']) == 2
+
+
+def test_contrast_evenness_needs_document_counts(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (repo / 'legacy.json').write_text(json.dumps({'total': 4, 'counts': {'parser': 2, 'the': 2}}))
+    corpus = repo / 'corpus'
+    corpus.mkdir()
+    (corpus / 'doc.md').write_text(CONTAMINATED)
+    args = ['contrast', '--baseline', 'legacy.json', '--corpus', 'corpus', '--alpha0', '10', '--z', '0.5']
+    assert main([*args, '-o', 'out.json']) == 2
+    assert 'rebuild the baseline' in capsys.readouterr().err
+    assert main([*args, '-o', 'out.json', '--evenness', '0']) == 0
 
 
 def test_contrast_top_keeps_only_the_highest_z(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -212,9 +247,9 @@ def test_score_uses_the_bundled_classifier_and_its_threshold(capsys: pytest.Capt
     out = capsys.readouterr().out
     assert out.startswith('text: vocabulary score')
     assert "'agent'" in out
-    assert out.rstrip().endswith('threshold 1.60: drifted')
+    assert out.rstrip().endswith('threshold 0.41: drifted')
     assert main(['score', PLAIN]) == 0
-    assert capsys.readouterr().out.rstrip().endswith('threshold 1.60: ok')
+    assert capsys.readouterr().out.rstrip().endswith('threshold 0.41: ok')
     assert main(['score', DRIFTED, '--threshold', '100']) == 0
 
 
@@ -235,8 +270,8 @@ def test_score_json_report(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(['score', '--json', DRIFTED]) == 1
     report = json.loads(capsys.readouterr().out)
     assert report['drifted'] is True
-    assert report['threshold'] == 1.6
-    assert report['score'] > 1.6
+    assert report['threshold'] == Watchlist.default().threshold
+    assert report['score'] > report['threshold']
     assert {hit['term'] for hit in report['terms']} >= {'agent', 'every'}
 
 

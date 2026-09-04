@@ -11,6 +11,7 @@ from pydantic_ai.exceptions import UserError
 
 from .. import _git
 from ..extract import extractor_for
+from ..stats import CorpusCounts, evenness, log_odds_z
 from ..watchlist import Watchlist
 
 CommandRunner: TypeAlias = Callable[[argparse.Namespace], int]
@@ -77,6 +78,52 @@ def load_documents(args: argparse.Namespace) -> list[tuple[str, str]]:
         (str(path.relative_to(directory)), path.read_text(encoding='utf-8', errors='replace'))
         for path in iter_prose_files(roots)
     ]
+
+
+def add_contrast_options(parser: argparse.ArgumentParser) -> None:
+    """The knobs that turn two corpora into a ranked term list; shared by `contrast` and `evaluate`."""
+    parser.add_argument('--alpha0', type=float, default=500.0, help='Total prior mass for the Dirichlet prior.')
+    parser.add_argument('--z', type=float, default=2.5, help='Minimum z toward the model corpus to be watched.')
+    parser.add_argument(
+        '--top',
+        type=int,
+        default=None,
+        metavar='N',
+        help='Keep only the N highest scores. With corpora of millions of tokens nearly every n-gram clears --z.',
+    )
+    parser.add_argument(
+        '--evenness',
+        type=float,
+        default=1.0,
+        metavar='GAMMA',
+        help='Weight z by how evenly a term spreads across documents, to the power GAMMA. '
+        'Voice spreads and topic bursts, so 1.0 favours voice; 0 disables the weighting.',
+    )
+
+
+def rank_terms(args: argparse.Namespace, *, model: CorpusCounts, baseline: CorpusCounts) -> list[tuple[str, float]]:
+    """Weighted z per term, highest first, after the --z floor and the --top cap."""
+    alpha0: float = args.alpha0
+    z_min: float = args.z
+    top: int | None = args.top
+    gamma: float = args.evenness
+    if top is not None and top < 1:
+        raise UserError('--top must be at least 1')
+    if gamma < 0:
+        raise UserError('--evenness must be zero or greater')
+    # The z floor is a significance test, so it applies to the raw z; the weighting only reorders survivors.
+    scores = {term: z for term, z in log_odds_z(model=model, baseline=baseline, alpha0=alpha0).items() if z > z_min}
+    if gamma:
+        spread = evenness(model=model, baseline=baseline)
+        scores = {term: z * spread[term] ** gamma for term, z in scores.items()}
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+    return ranked[:top]
+
+
+def describe_ranking(args: argparse.Namespace, count: int) -> str:
+    cap = f', top {args.top}' if args.top is not None else ''
+    weighting = f', evenness^{args.evenness:g}' if args.evenness else ''
+    return f'{count} watched n-grams (z > {args.z}{cap}{weighting})'
 
 
 def add_output_option(parser: argparse.ArgumentParser, *, default: str, help: str) -> None:

@@ -19,13 +19,16 @@ from pydantic_ai.exceptions import UserError
 
 from .normalize import normalize
 
-__all__ = ('CorpusCounts', 'Separation', 'jensen_shannon', 'log_odds_z', 'separation')
+__all__ = ('CorpusCounts', 'Separation', 'evenness', 'jensen_shannon', 'log_odds_z', 'separation')
 
 
 class _CorpusFile(BaseModel):
     total: int
     counts: dict[str, int]
     source: str = ''
+    # Files written before document frequency existed load with these empty; evenness then needs a rebuild.
+    documents: int = 0
+    document_counts: dict[str, int] = {}
 
 
 @dataclass(kw_only=True)
@@ -35,13 +38,24 @@ class CorpusCounts:
     counts: Counter[str] = field(default_factory=Counter[str])
     source: str = ''
     """Where the counts came from, for the human reading the file later."""
+    documents: int = 0
+    """Number of documents counted; zero for files written before document frequency was recorded."""
+    document_counts: Counter[str] = field(default_factory=Counter[str])
+    """How many documents each n-gram appears in at least once."""
 
     @classmethod
     def from_documents(cls, documents: Iterable[str], *, source: str = '') -> CorpusCounts:
         counts: Counter[str] = Counter()
+        document_counts: Counter[str] = Counter()
+        seen = 0
         for document in documents:
-            counts.update(normalize(document))
-        return cls(total=sum(counts.values()), counts=counts, source=source)
+            tokens = normalize(document)
+            counts.update(tokens)
+            document_counts.update(set(tokens))
+            seen += 1
+        return cls(
+            total=sum(counts.values()), counts=counts, source=source, documents=seen, document_counts=document_counts
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> CorpusCounts:
@@ -49,10 +63,22 @@ class CorpusCounts:
             parsed = _CorpusFile.model_validate_json(Path(path).read_text(encoding='utf-8'))
         except ValidationError as error:
             raise UserError(f'Invalid corpus counts file {path}: {error}') from error
-        return cls(total=parsed.total, counts=Counter(parsed.counts), source=parsed.source)
+        return cls(
+            total=parsed.total,
+            counts=Counter(parsed.counts),
+            source=parsed.source,
+            documents=parsed.documents,
+            document_counts=Counter(parsed.document_counts),
+        )
 
     def save(self, path: str | Path) -> None:
-        payload = _CorpusFile(total=self.total, counts=dict(self.counts.most_common()), source=self.source)
+        payload = _CorpusFile(
+            total=self.total,
+            counts=dict(self.counts.most_common()),
+            source=self.source,
+            documents=self.documents,
+            document_counts={term: self.document_counts[term] for term, _ in self.counts.most_common()},
+        )
         Path(path).write_text(payload.model_dump_json(indent=2) + '\n', encoding='utf-8')
 
     def frequencies(self) -> dict[str, float]:
@@ -75,6 +101,24 @@ def log_odds_z(*, model: CorpusCounts, baseline: CorpusCounts, alpha0: float) ->
         variance = 1 / (y_i + a_w) + 1 / (y_j + a_w)
         scores[term] = delta / math.sqrt(variance)
     return scores
+
+
+def evenness(*, model: CorpusCounts, baseline: CorpusCounts) -> dict[str, float]:
+    """How evenly each n-gram spreads across documents: documents containing it over total occurrences.
+
+    A word used once in most documents scores near 1; a word used forty times in a few documents
+    scores near 0. Voice spreads, topic bursts, so `z * evenness ** gamma` favours voice.
+    """
+    if not model.documents or not baseline.documents:
+        raise UserError(
+            'evenness needs document frequencies; rebuild the baseline with `vocabguard baseline` to record them'
+        )
+    result: dict[str, float] = {}
+    for term in model.counts.keys() | baseline.counts.keys():
+        occurrences = model.counts[term] + baseline.counts[term]
+        if occurrences:
+            result[term] = (model.document_counts[term] + baseline.document_counts[term]) / occurrences
+    return result
 
 
 def jensen_shannon(p: CorpusCounts, q: CorpusCounts) -> float:

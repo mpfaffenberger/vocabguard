@@ -79,9 +79,13 @@ ratio between the two corpora is computed with an informative Dirichlet prior (M
 and Quinn, 2008), where the prior mass for each term is `alpha0` times its pooled frequency. The
 prior pulls common words toward zero, which is why stopwords are not removed. Each log-odds value
 is divided by its standard error to give a z score; terms with z above a cutoff toward the model
-corpus become the watchlist. At write time, the score of a piece of prose is the sum of the z
-scores of the watched terms it contains divided by its token count, and any score above the
-threshold (default zero) asks the model to rephrase.
+corpus are candidates. Each candidate's z is then weighted by how evenly it spreads across
+documents (documents containing it over total occurrences): a word used once in most documents
+keeps its weight, a word used forty times in a few documents loses most of it. Voice spreads and
+topic bursts, so the weighting favours how things are said over what they are about. The
+highest weighted terms become the watchlist. At write time, the score of a piece of prose is the
+sum of the weighted z of the watched terms it contains divided by its token count, and any score
+above the threshold asks the model to rephrase.
 
 ## Workflow
 
@@ -278,30 +282,38 @@ tokens). Markup, URLs, and code were stripped before counting.
 
 ```bash
 vocabguard evaluate --baseline-dir human/ --corpus-dir claude/ --top 1000
-vocabguard contrast --baseline human.json --corpus claude/ -o readme_2026_watchlist.json --top 1000 --threshold 1.6
+vocabguard contrast --baseline human.json --corpus claude/ -o readme_2026_watchlist.json --top 1000 --threshold 0.41
 ```
 
 ```text
-AUC: 0.872
-threshold 1.60: flags 75% of model documents and 8% of baseline documents
+AUC: 0.869
+threshold 0.41: flags 75% of model documents and 6% of baseline documents
 ```
 
-The 1.6 is stored in the file. What it measures, and what it does not:
+The 0.41 is stored in the file. What it measures, and what it does not:
 
-- **Voice**: the 2026 corpus over-uses `every`, `no`, `across`, `via`, `full`, `with`, and `what`,
-  and under-uses `the`, `of`, `to`, `you`, `can`, `will`, `be`, `if`. Nominal, list-shaped
-  fragments instead of sentences aimed at a reader.
-- **Topic**: `agent`, `memory`, `session`, `skill`, `hook`, `tool`, `llm`, `vector` lead the list
-  because that is what the 2026 repositories are about. A human writing about an agent in plain
-  sentences scores around the threshold; the test suite pins that case rather than hiding it.
+- **Voice, by design.** The list is led by `full`, `every`, `across`, `stay`, `live`, `ship`,
+  `never`, `plus`, `no`: the 2026 corpus over-uses them and under-uses `the`, `of`, `to`, `you`,
+  `can`, `will`, `be`, `if`. Nominal, list-shaped fragments instead of sentences aimed at a
+  reader. Without the evenness weighting the same corpora put `agent`, `memory`, `session`, and
+  `skill` on top, with the same AUC; those are what 2026 repositories are about, not how they are
+  written, and more people writing about agents is not drift. The weighting drops `agent` from a
+  z of 77 to 5.
+- **Topic still leaks a little.** A human writing about an agent in plain sentences lands right at
+  the cut; the test suite pins that case rather than hiding it. Documents about agents will run a
+  few tenths higher than documents about parsers.
+- **Scaffold headers are the next frontier.** Push the weighting past 1.5 and the list becomes
+  `quick start`, `license mit`, `project structure`, `prerequisite`: every generated README has
+  exactly one of each. That is structural drift, the job of the `[structural]` extra.
 - **Attribution is per repository, not per document.** Some READMEs in the 2026 corpus were typed
-  by people; some pre-2025 READMEs were not. The 8% false alarm rate was measured on pre-2025
-  READMEs, which rarely discuss agents.
-- **English only.** The 2026 corpus has more non-English READMEs, so `de` and `si` carry high z.
-  Non-English prose scores high for the wrong reason.
+  by people; some pre-2025 READMEs were not. The 6% false alarm rate was measured on pre-2025
+  READMEs.
+- **English only.** The 2026 corpus has more non-English READMEs, so some non-English function
+  words carry weight. Non-English prose scores high for the wrong reason.
 
-The corpora are not in the repository. With `instruct=True` the capability lists the top terms,
-which for this list are topic words; consider `instruct=False` or a pruned copy for agent projects.
+The corpora are not in the repository. This README scores 0.77 against its own classifier, well
+above the cut, and the terms responsible are `every`, `no`, `never`, `what it`, and `across`, not
+the subject matter. It was written by a model.
 
 ## Watchlist file
 
