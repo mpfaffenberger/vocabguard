@@ -12,13 +12,13 @@ reports drift over time.
 ## Sixty seconds
 
 ```bash
-pip install vocabguard
-vocabguard "Agent runtime with persistent memory across sessions. Every task runs in a worker."
-echo "Some text you are unsure about" | vocabguard
+uvx vocabguard "Agent runtime with persistent memory across sessions. Every task runs in a worker."
+echo "Some text you are unsure about" | uvx vocabguard
 ```
 
-Both print the score, the terms that drove it, and `drifted` or `ok`, and exit 1 on drift. In an
-agent, the same classifier at the same threshold is one line:
+No install step: `uvx` fetches the package and runs it. Both forms print the score, the terms
+that drove it, and `drifted` or `ok`, and exit 1 on drift. In an agent, the same classifier at
+the same threshold is one line:
 
 ```python
 from pydantic_ai import Agent
