@@ -24,7 +24,7 @@ the same threshold is one line:
 from pydantic_ai import Agent
 from vocabguard import VocabularyGuard
 
-agent = Agent('openai:gpt-5', capabilities=[VocabularyGuard()])
+agent = Agent('openai:gpt-5.6-luna', capabilities=[VocabularyGuard()])
 ```
 
 Where that classifier came from, and what it can and cannot tell you, is under
@@ -114,7 +114,7 @@ silently would change what every later report means.
 ### 2. Build the model corpus
 
 ```bash
-vocabguard rewrite --ref v1.0.0 --path docs --path README.md --model openai:gpt-5 -o corpus/
+vocabguard rewrite --ref v1.0.0 --path docs --path README.md --model openai:gpt-5.6-luna -o corpus/
 ```
 
 `--dir reference/` works here too when the baseline came from a gathered corpus.
@@ -165,7 +165,7 @@ from pydantic_ai import Agent
 from vocabguard import VocabularyGuard, Watchlist
 
 guard = VocabularyGuard(Watchlist.load('watchlist.json'))
-agent = Agent('openai:gpt-5', capabilities=[guard])
+agent = Agent('openai:gpt-5.6-luna', capabilities=[guard])
 ```
 
 `VocabularyGuard()` with no watchlist uses the bundled measured classifier. The threshold comes

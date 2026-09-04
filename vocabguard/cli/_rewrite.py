@@ -17,7 +17,7 @@ INSTRUCTIONS = (
 
 def configure(parser: argparse.ArgumentParser) -> None:
     add_source_options(parser)
-    parser.add_argument('--model', required=True, help='Pydantic AI model name, for example openai:gpt-5.')
+    parser.add_argument('--model', required=True, help='Pydantic AI model name, for example openai:gpt-5.6-luna.')
     add_output_option(parser, default='corpus', help='Directory for the rewritten documents.')
 
 
