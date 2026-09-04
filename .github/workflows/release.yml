@@ -1,0 +1,45 @@
+name: Release
+
+# Push a tag like v0.2.0 whose version matches pyproject.toml. The gate runs again here on
+# purpose: a tag can point at a commit that CI never saw.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+
+      - name: Tag must match the package version
+        run: |
+          version="$(uv version --short)"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "pyproject.toml says $version but the tag says $tag" >&2
+            exit 1
+          fi
+
+      - run: uv sync --frozen
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run pyright
+      - run: uv run pytest
+      - run: uv run vocabguard check README.md docs/ --watchlist vocabguard/data/starter_watchlist.json
+
+      - run: uv build
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv publish
+
+      - name: GitHub release with the built artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes

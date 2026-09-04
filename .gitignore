@@ -12,3 +12,4 @@ corpus/
 reference*/
 baseline.json
 imgui.ini
+.pypi_token
